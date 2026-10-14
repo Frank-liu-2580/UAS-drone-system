@@ -6,7 +6,7 @@
 - 爬取数据 data/raw/（multi_raw.jsonl / drone_videos.xlsx）
 - 按站点出 xlsx 的数据整理脚本
 
-**所有 AI 相关代码（P/T 权重、分类器、校准、机载决策、模拟器）已全部移至 `123\drone_ai`（项目根相对路径）。**
+**所有 AI 相关代码（P/T 权重、分类器、校准、机载决策、模拟器）已全部移至 `123/drone_ai`。**
 
 ## 使用
 ```
@@ -14,7 +14,7 @@
 ```
 爬完数据后，AI 分析在 drone_ai 里跑：
 ```
-cd 123/drone_ai（项目根相对路径）
+cd 123/drone_ai
 python -m analyzer.run_all    # 4 步：事件库/动作库/清洗/P-T 校准
 ```
 

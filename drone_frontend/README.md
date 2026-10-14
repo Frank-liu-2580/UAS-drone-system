@@ -9,7 +9,7 @@
 ## 项目结构
 
 ```
-项目根\drone_frontend（相对路径）\
+drone_frontend\
 ├── server.py          # Flask 后端（API 服务）
 ├── start.bat          # 一键启动脚本（双击即可）
 ├── start_server.py    # Python 启动器
@@ -28,7 +28,7 @@
 ### 方式一：双击 start.bat（推荐）
 
 ```
-双击 项目根\drone_frontend（相对路径）\start.bat
+双击 drone_frontend\start.bat
 ```
 
 然后浏览器打开：
@@ -40,7 +40,7 @@ http://localhost:5000
 ### 方式二：命令行
 
 ```powershell
-cd 项目根\drone_frontend（相对路径）
+cd drone_frontend
 pip install flask
 python server.py 5000
 ```
@@ -101,7 +101,7 @@ python server.py 5000
 服务日志写入：
 
 ```
-项目根\drone_frontend（相对路径）\logs\drone_sim.log
+drone_frontend\logs\drone_sim.log
 ```
 
 记录内容：

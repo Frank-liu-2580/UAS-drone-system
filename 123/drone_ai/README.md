@@ -19,8 +19,8 @@
 ## 快速自检（桌面仿真）
 
 ```
-cd 123/drone_ai（项目根下的 123/drone_ai）
-python -c "import sys; sys.path.insert(0,'drone_ai'); import ai_main; ai_main.main()"
+cd 123/drone_ai
+python -c "import ai_main; ai_main.main()"
 ```
 
 会依次打印：5 路串口最新帧、兜底判定、8 个场景演示（含自动选模式 +
