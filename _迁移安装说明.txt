@@ -1,0 +1,60 @@
+
+## 5. 3D 离线演示打不开 · 排障清单（迁移后专用）
+
+3D 离线演示 = `demo.html` + `three.min.js` + `GLTFLoader.js`（全本地，无 CDN）+ **pywebview（Edge WebView2 弹出小窗口）**。
+代码与资源都没问题时，真正会卡住的按概率排序为下面 4 类。
+
+### ① pywebview 没装到"目标 Python"里（最常见）
+`run_demo.bat` / `launch_app.pyw` 调的是系统默认 `python`。若目标机有多个 Python 版本，
+`pip install pywebview` 装到了 A 版本、而 `pythonw launch_app.pyw` 用的是 B 版本 → import 失败。
+或根本没装（bat 里只 `import webview` 检测失败才装，联网卡住会静默失败）。
+
+排查：
+```
+python -c "import sys; print(sys.executable)"     # 看实际用哪个 python
+python -c "import webview; print('pywebview OK')" # 直接测 pywebview
+python -m pip install pywebview                   # 没有就装到当前 python
+```
+注意：`.pyw` 文件关联的 `pythonw.exe` 必须和装 pywebview 的 python 是**同一个**。
+
+### ② 缺 Microsoft Edge WebView2 运行时（次常见）
+pywebview 在 Windows 上走 WebView2，目标机没有 **Edge WebView2 Runtime** 时，
+窗口会**静默不出**（不报错、不弹窗）。Win10 2004+/Win11 一般内置，较老系统需手装。
+
+修复：装一次 [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)
+（Evergreen Bootstrapper），装完重启再开。
+
+### ③ WebView2 profile 锁冲突（偶发，"有时行有时不行"的典型原因）
+`launch_app.pyw` 每次启动会 `taskkill /F msedgewebview2.exe` 并固定使用
+`drone_frontend\logs\webview2_user_data\` 这个 profile。若上次窗口没关干净、
+残留 `msedgewebview2.exe` 占着锁，或系统其它带 WebView2 的程序抢占 Edge 运行库 → 静默失败。
+
+修复（在 `drone_frontend` 目录）：
+```
+Stop-Process -Name msedgewebview2 -Force -ErrorAction SilentlyContinue
+Remove-Item .\logs\webview2_user_data\* -Force -Recurse -ErrorAction SilentlyContinue
+pythonw launch_app.pyw
+```
+
+### ④ file:// 协议下 WebGL 被禁（少见）
+demo.html 用 `file://` 直接加载（`pathlib.Path.as_uri()`）。某些 GPU 驱动或安全策略下，
+WebView2 对 `file://` 页面的 WebGL 硬件加速可能被禁 → **窗口弹出但白屏/灰屏**（不是"打不开"，是"打开但没画面"）。
+
+排查：能弹出窗口但画面空白时，先确认显卡驱动正常；可临时改用 3D Web 版
+（`python drone_frontend/server.py`，浏览器开 `http://localhost:5000`）对照——
+浏览器版能出画面而离线版灰屏 → 基本是 `file://` + WebGL 加速问题。
+
+### 一步定位法（最快）
+在目标机 `drone_frontend` 目录按顺序跑：
+```
+python -c "import webview, sys; print('pywebview OK', sys.executable)"
+Stop-Process -Name msedgewebview2 -Force -ErrorAction SilentlyContinue
+pythonw launch_app.pyw
+Get-Content logs\offline_demo.log -Tail 15
+```
+`offline_demo.log` 末尾行直接定位卡点：
+| 日志末尾 | 根因 |
+|---|---|
+| `pywebview missing, trying pip install` | ①（依赖没装对） |
+| `starting webview window ...` 后无 `closed` 且无窗口弹出 | ②（WebView2 运行时缺失）或 ③（锁） |
+| `webview.start() RAISED: ...` | 直接看异常文本 |

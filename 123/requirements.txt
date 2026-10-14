@@ -1,0 +1,21 @@
+# 无人机影子 AI 决策系统 — 统一依赖
+# 安装: pip install -r requirements.txt
+
+# ---- 核心: 机载 AI + 模拟器 ----
+openpyxl>=3.1
+
+# ---- 爬虫 (drone_crawler) ----
+requests>=2.31
+beautifulsoup4>=4.12
+lxml>=4.9
+yt-dlp>=2024.4.9
+
+# ---- 前端 (drone_frontend, 可选) ----
+flask>=3.0
+pywebview>=4.0
+
+# ---- 真实串口 (上机时启用, 桌面开发不需要) ----
+# pyserial>=3.5
+
+# ---- 可选: 数据校验 ----
+# pandas>=2.0

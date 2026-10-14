@@ -1,0 +1,1395 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>无人机飞行模拟 · 离线演示</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Segoe UI','Microsoft YaHei',sans-serif;
+  background:#0a0e1a; color:#e0e8ff; overflow:hidden; height:100vh;
+}
+.hidden { display:none !important; }
+.screen { position:fixed; inset:0; }
+
+/* ===== 菜单 ===== */
+#menu-screen{
+  display:flex; align-items:center; justify-content:center;
+  background:radial-gradient(ellipse at 50% 30%, #1a2540 0%, #0a0e1a 70%); z-index:10;
+}
+.menu-panel{
+  width:460px; max-width:92vw;
+  background:rgba(15,20,40,0.95); border:1px solid rgba(80,140,255,0.25);
+  border-radius:16px; padding:36px 34px; text-align:center;
+  box-shadow:0 20px 60px rgba(0,0,0,0.6);
+}
+.menu-title{ font-size:26px; font-weight:700; color:#7ab8ff; margin-bottom:6px; }
+.drone-icon{ display:inline-block; animation:float 3s ease-in-out infinite; margin-right:8px; }
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+.menu-subtitle{ font-size:13px; color:#6688aa; margin-bottom:24px; }
+.menu-form{ display:flex; flex-direction:column; gap:14px; margin-bottom:24px; text-align:left; }
+.menu-form label{ font-size:13px; color:#88aacc; display:flex; flex-direction:column; gap:6px; }
+.menu-form input{
+  background:rgba(20,30,55,0.9); border:1px solid rgba(80,140,255,0.3);
+  border-radius:8px; padding:10px 14px; color:#e0e8ff; font-size:15px; outline:none;
+}
+.btn-primary{
+  width:100%; background:linear-gradient(135deg,#2a6df5,#4a90e2); color:#fff;
+  border:none; border-radius:10px; padding:14px; font-size:16px; font-weight:600;
+  cursor:pointer; transition:all .2s; letter-spacing:.5px;
+}
+.btn-primary:hover{ transform:translateY(-2px); box-shadow:0 8px 24px rgba(42,109,245,.4); }
+.btn-primary:disabled{ opacity:.5; cursor:not-allowed; transform:none; }
+.menu-status{ font-size:13px; color:#ff9944; margin-top:12px; min-height:18px; }
+.menu-tip{
+  margin-top:20px; font-size:12px; color:#556688; line-height:1.6;
+  border-top:1px solid rgba(80,140,255,0.15); padding-top:14px;
+}
+.offline-badge{
+  display:inline-block; margin-top:14px; font-size:11px; color:#55ff88;
+  border:1px solid rgba(80,255,120,.3); border-radius:20px; padding:4px 12px;
+}
+
+/* ===== 3D 画布 ===== */
+#flight-screen{ background:#000; }
+#three-canvas{ width:100%; height:100%; display:block; cursor:grab; }
+#three-canvas:active{ cursor:grabbing; }
+.hud-row.cam-hint{ font-size:11px; color:#7788aa; margin-top:8px; line-height:1.5; opacity:.85; }
+#hud{
+  position:absolute; top:14px; left:14px; background:rgba(8,12,24,.78);
+  border:1px solid rgba(80,140,255,.3); border-radius:10px; padding:12px 16px;
+  backdrop-filter:blur(8px); z-index:5; min-width:220px;
+}
+.hud-row{ font-size:14px; font-family:'Courier New',monospace; line-height:1.7; color:#aaccff; }
+.hud-row.event-row{ color:#ffaa44; min-height:18px; margin-top:4px; font-size:13px; }
+.mode-cruise{ color:#55ff88; } .mode-protect{ color:#ffaa44; }
+.mode-rtb{ color:#ff5555; } .mode-mission{ color:#77aaff; }
+#timeline-bar{
+  position:absolute; bottom:62px; left:50%; transform:translateX(-50%);
+  width:420px; max-width:80%; height:6px; background:rgba(255,255,255,.15);
+  border-radius:3px; z-index:5;
+}
+#timeline-fill{
+  position:absolute; top:0; left:0; height:100%; width:0%;
+  background:linear-gradient(90deg,#2a6df5,#55ff88); border-radius:3px;
+  transition:width .3s linear;
+}
+#timeline-label{
+  position:absolute; bottom:8px; width:100%; text-align:center;
+  font-size:12px; color:#88aacc; font-family:'Courier New',monospace;
+}
+#controls{
+  position:absolute; bottom:12px; left:50%; transform:translateX(-50%);
+  display:flex; gap:8px; align-items:center; z-index:5;
+  background:rgba(8,12,24,.78); border:1px solid rgba(80,140,255,.25);
+  border-radius:10px; padding:8px 14px;
+}
+.btn-small{
+  background:rgba(40,60,100,.8); border:1px solid rgba(80,140,255,.3); color:#aaccff;
+  border-radius:6px; padding:6px 12px; font-size:13px; cursor:pointer; transition:all .15s; white-space:nowrap;
+}
+.btn-small:hover{ background:rgba(60,90,140,.9); color:#fff; }
+.btn-small.active{ background:#2a6df5; color:#fff; border-color:#4a90e2; }
+#btn-back{ background:rgba(40,160,80,.9); color:#fff; border-color:rgba(80,200,120,.5); }
+#finish-badge{ font-size:13px; color:#55ff88; font-weight:600; }
+
+/* ===== 错误/加载遮罩（防黑屏）===== */
+#overlay{
+  position:fixed; inset:0; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; z-index:50;
+  background:rgba(5,8,18,.92); text-align:center; padding:24px;
+}
+#overlay .box{
+  max-width:420px; background:rgba(15,20,40,.9);
+  border:1px solid rgba(80,140,255,.3); border-radius:12px; padding:24px;
+}
+#overlay .title{ font-size:18px; color:#ff9944; margin-bottom:10px; font-weight:600; }
+#overlay .msg{ font-size:14px; color:#aaccff; line-height:1.7; }
+.spinner{
+  width:40px; height:40px; border:4px solid rgba(80,140,255,.2);
+  border-top-color:#4a90e2; border-radius:50%; margin:0 auto 16px;
+  animation:spin .8s linear infinite;
+}
+@keyframes spin{ to{ transform:rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<div id="menu-screen" class="screen">
+  <div class="menu-panel">
+    <div class="menu-title"><span class="drone-icon">✈</span>无人机飞行模拟</div>
+    <div class="menu-subtitle">离线 3D 演示 · 内置演示数据，无需后端</div>
+
+    <div class="menu-form">
+      <label>模拟时长（分钟）
+        <input type="number" id="input-minutes" value="8" min="1" max="30" step="1">
+      </label>
+      <label>随机种子（留空=默认演示）
+        <input type="number" id="input-seed" placeholder="例如 42" step="1">
+      </label>
+    </div>
+
+    <button id="btn-start" class="btn-primary">▶ 开始飞行模拟</button>
+    <div id="menu-status" class="menu-status"></div>
+    <div class="offline-badge">● 离线演示模式 · 不调用 localhost:5000</div>
+    <div class="menu-tip" style="margin-top:10px">🌲 场景为<b>密集真实树林</b>：近景约 3000 棵混交林（簇分布 + 逐棵颜色微变 + 树干倾斜）+ 远景 8 圈剪影（无边树林）+ 下木灌木 1800 簇 + 草丛 + 落叶层 + 森林薄雾，地图 1600m；可放 <code>models/scenery/tree.glb</code> 用真实 GLB 替换近景。无人机的<b>速度由 AI 算法掌控</b>（航点跟踪 + 避障 + 雨遮蔽），每次事件随机生成</div>
+    <div class="menu-tip">
+      点击"开始"后将使用<b>内置演示数据</b>播放 3D 动画，全程无需网络/后端。
+      若 Three.js 无法加载，会自动回退到程序化模型（依然可播放）。
+      <br><b>🎥 视角：</b>自动跟随无人机移动；<b>🖱️ 长按左键拖动</b>可自由旋转视角；<b>🖲️ 滚轮</b>缩放远近。
+    </div>
+  </div>
+</div>
+
+<div id="flight-screen" class="screen hidden">
+  <canvas id="three-canvas"></canvas>
+  <div id="hud">
+    <div id="hud-time" class="hud-row">⏱ --:--:--</div>
+    <div id="hud-latlon" class="hud-row">📍 --</div>
+    <div id="hud-alt" class="hud-row">⬆ --m</div>
+    <div id="hud-battery" class="hud-row">🔋 --%</div>
+    <div id="hud-mode" class="hud-row mode-cruise">模式: --</div>
+    <div id="hud-event" class="hud-row event-row"></div>
+    <div id="hud-cam-hint" class="hud-row cam-hint">🎥 自动跟随 · 🖱 按住左键拖动=自由视角 · 🖲 滚轮=缩放<br>📌 松开后锁定当前视角</div>
+  </div>
+  <div id="timeline-bar">
+    <div id="timeline-fill"></div>
+    <div id="timeline-label">0s / 0s</div>
+  </div>
+  <div id="controls">
+    <button id="btn-pause" class="btn-small">⏸ 暂停</button>
+    <button id="btn-speed1" class="btn-small active">1x</button>
+    <button id="btn-speed4" class="btn-small">4x</button>
+    <button id="btn-speed8" class="btn-small">8x</button>
+    <button id="btn-back" class="btn-small hidden">← 返回</button>
+    <span id="finish-badge" class="hidden">✓ 任务完成</span>
+  </div>
+</div>
+
+<!-- 防黑屏遮罩 -->
+<div id="overlay">
+  <div class="box">
+    <div class="spinner"></div>
+    <div class="title">正在初始化 3D 引擎…</div>
+    <div class="msg" id="overlay-msg">加载 Three.js / 程序化模型</div>
+  </div>
+</div>
+
+<!-- 内置演示数据：运行时按种子随机生成（每次事件不同），结构与 /api/sim 一致 -->
+<script>
+/* 事件类型池（对应 drone_ai 的异常类型），前端按随机种子生成 5~8 个事件 */
+const EVENT_POOL = [
+  { key:"wind_gust",  name_cn:"大风" },
+  { key:"rain",       name_cn:"下雨" },
+  { key:"obstacle",   name_cn:"障碍接近" },
+  { key:"bird_detect",name_cn:"鸟群接近" },
+  { key:"low_battery",name_cn:"低电量" },
+  { key:"gps_drift",  name_cn:"GPS漂移" },
+  { key:"signal_loss",name_cn:"链路丢失" },
+];
+const ANOMALY_MODE = {
+  none:"CRUISE", wind_gust:"PROTECT", rain:"PROTECT", obstacle:"MISSION",
+  bird_detect:"RTB", low_battery:"RTB", gps_drift:"RTB", signal_loss:"RTB",
+};
+const MODE_CN = { CRUISE:"巡航", PROTECT:"保护", MISSION:"任务", RTB:"返航" };
+const ANOMALY_CN = {
+  none:"正常", wind_gust:"大风", rain:"下雨", obstacle:"障碍",
+  bird_detect:"鸟群", low_battery:"低电量", gps_drift:"GPS漂移", signal_loss:"链路丢失",
+};
+/* 各事件类别的应对方法（机载 AI 决策出的动作 + 一句说明，HUD/决策层展示） */
+const RESPONSE = {
+  none:        { action:"保持巡航",       desc:"无异常，沿航线巡航" },
+  wind_gust:   { action:"降低高度 + 抗风", desc:"大风减高稳住，抗风漂移" },
+  rain:        { action:"钻大树冠下避雨",  desc:"雨降到最大树冠层下遮蔽" },
+  obstacle:    { action:"侧向绕开障碍",    desc:"障碍斥力转向绕行" },
+  bird_detect: { action:"加速规避鸟群",    desc:"鸟群加速偏离路径" },
+  low_battery: { action:"直线返航原点",    desc:"低电量硬件，直线返原点降落" },
+  gps_drift:   { action:"直线返航原点",    desc:"GPS漂移硬件，直线返原点" },
+  signal_loss: { action:"直线返航原点",    desc:"链路丢失硬件，直线返原点" },
+};
+/* 硬件类异常（低电量/GPS/链路）统一“直线返回原点” */
+const HARDWARE_RTB = ["low_battery", "gps_drift", "signal_loss"];
+
+/* 按种子伪随机（mulberry32），可复现但每次启动不同 */
+function _mulberry32(a){ return function(){ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+function _fmtClock(sec){ const h=String(8+Math.floor(sec/3600)).padStart(2,'0'); const m=String(Math.floor((sec%3600)/60)).padStart(2,'0'); const s=String(sec%60).padStart(2,'0'); return `${h}:${m}:${s}`; }
+function _modeSummary(ticks){ const cnt={CRUISE:0,PROTECT:0,MISSION:0,RTB:0};
+  for(let i=0;i<ticks.length-1;i++){ cnt[ticks[i].mode]=(cnt[ticks[i].mode]||0)+Math.max(0,ticks[i+1].ts-ticks[i].ts); }
+  return Object.entries(cnt).filter(([k,v])=>v>0).map(([k,v])=>`${k}=${v}s`).join('/'); }
+/* 生成一次 8 分钟飞行：事件数 5~8、时刻/时长随机，雨区间跟随雨事件 */
+function generateSimData(seed){
+  const rng = _mulberry32(seed);
+  const total = 480;
+  const home = { lat:30.0, lon:120.0, alt:15.0 };
+  /* 巡航时间（非事件区间的总巡航秒数）决定航线长度：越长飞越远 */
+  const n = 5 + Math.floor(rng()*4);
+  const start0 = 30 + Math.floor(rng()*40);
+  const types = EVENT_POOL.slice().sort(()=>rng()-0.5).slice(0, n);
+  let events = [], ticks = [], timeline = [];
+  let tCur = start0;
+  for (let i=0;i<n;i++){
+    const dur = 20 + Math.floor(rng()*45);
+    const et = types[i];
+    const startS = Math.min(tCur, total-60);
+    events.push({ id:i+1, start_s:startS, dur_s:dur, name_cn:et.name_cn, key:et.key,
+                  resp:RESPONSE[et.key], rtb:HARDWARE_RTB.indexOf(et.key)>=0 });
+    tCur = startS + dur + 10 + Math.floor(rng()*20);
+  }
+  events = events.sort((a,b)=>a.start_s-b.start_s);
+  const rainRanges = events.filter(e=>e.key==="rain").map(e=>[e.start_s, e.start_s+e.dur_s]);
+  /* 硬件类（低电量/GPS/链路）事件 -> 直线返航区间（controller 在这些时刻直线回原点） */
+  const rtbRanges = events.filter(e=>e.rtb).map(e=>[e.start_s, e.start_s+e.dur_s]);
+  ticks.push({ ts:0, time_str:"08:00:00", mode:"CRUISE", mode_cn:"巡航", anomaly:"none", anomaly_cn:"正常" });
+  timeline.push({ ts:0, time_str:"08:00:00", level:"OK", content:"起飞 | home=(30.0,120.0,15.0)" });
+  for (const ev of events){
+    const mode = ANOMALY_MODE[ev.key];
+    ticks.push({ ts:ev.start_s, time_str:_fmtClock(ev.start_s), mode, mode_cn:MODE_CN[mode], anomaly:ev.key, anomaly_cn:ANOMALY_CN[ev.key] });
+    timeline.push({ ts:ev.start_s, time_str:_fmtClock(ev.start_s), level:"INFO", content:`事件#${ev.id} 开始: ${ev.name_cn} -> 应对: ${ev.resp.action}` });
+    const recoverS = Math.min(ev.start_s+ev.dur_s+5, total-2);
+    ticks.push({ ts:recoverS, time_str:_fmtClock(recoverS), mode:"CRUISE", mode_cn:"巡航", anomaly:"none", anomaly_cn:"正常" });
+    timeline.push({ ts:ev.start_s+ev.dur_s, time_str:_fmtClock(ev.start_s+ev.dur_s), level:"OK", content:`事件#${ev.id} 结束: ${ev.name_cn}` });
+  }
+  ticks.push({ ts:total, time_str:_fmtClock(total), mode:"CRUISE", mode_cn:"巡航", anomaly:"none", anomaly_cn:"正常" });
+  timeline.push({ ts:total, time_str:_fmtClock(total), level:"OK", content:"任务完成 | 安全降落" });
+  ticks.sort((a,b)=>a.ts-b.ts); timeline.sort((a,b)=>a.ts-b.ts);
+  /* 巡航时间统计（非事件秒数） -> 航线半径（越长越远） */
+  let eventSec = 0;
+  for (const e of events) eventSec += e.dur_s;
+  const cruiseSec = Math.max(60, total - eventSec);   // 巡航秒数（下限 60）
+  const radius = 120 + Math.min(400, Math.round(cruiseSec * 1.2));  // 航线半径 120~520m（随巡航时间变长）
+  /* 航线：开放环（起点=原点，终点=原点，只交汇一次）；按半径缩放 + 绕 9 段螺旋外扩再返回 */
+  const pts = _buildOpenLoopRoute(radius, rng);
+  /* position_seq：raining 跟随雨区间 + rtb 跟随硬件区间（controller 渲染时用） */
+  const seq = [];
+  for (let t=0;t<=total;t+=0.5){
+    const frac=t/total;
+    seq.push({ t, lat:+(home.lat+t*0.01).toFixed(4), lon:+(home.lon+t*0.01).toFixed(4),
+               alt:home.alt, battery_pct:Math.round(100*(1-frac*0.85)),
+               raining: rainRanges.some(r=>t>=r[0]&&t<r[1]),
+               rtb: rtbRanges.some(r=>t>=r[0]&&t<r[1]) });
+  }
+  const evTag = events.map(e=>e.key.replace(/_/g,'')).join('/');
+  const fingerprint = `events[${evTag}] modes[${_modeSummary(ticks)}] changes=${n} radius=${radius}`;
+  return { seed, minutes:8, total_s:total, fingerprint, events, timeline, ticks,
+           position_seq:seq, home, route:pts, routeRadius:radius };
+}
+/* 开放环航线（D 字形）：
+   起点=原点 -> 直线出射到 far 角(A) -> 半圆扫到对侧(B) -> 直线回原点。
+   起点与终点只重合于原点一次，中间不自交（简单弧），航线长度随半径(radius)变长。 */
+function _buildOpenLoopRoute(radius, rng){
+  const ang = rng()*Math.PI*2;                       // 出射方向随机
+  const ax = Math.cos(ang)*radius, az = Math.sin(ang)*radius;   // A 点
+  const bx = -ax, bz = -az;                            // B 点（对侧）
+  const pts = [{x:0,z:0}];
+  // 出射腿 O -> A（5 段）
+  for (let i=1;i<=5;i++){ const f=i/6; pts.push({x:ax*f, z:az*f}); }
+  // 半圆 A -> B（以原点为心、半径 radius，扫 180 度；20 段）
+  const side = (rng()<0.5 ? 1 : -1);
+  for (let i=1;i<=20;i++){ const f=i/21; const a=ang + side*f*Math.PI;
+    pts.push({x:Math.cos(a)*radius, z:Math.sin(a)*radius}); }
+  // 返回腿 B -> O（5 段）
+  for (let i=1;i<=5;i++){ const f=i/6; pts.push({x:bx*(1-f), z:bz*(1-f)}); }
+  pts.push({x:0,z:0});   // 回原点（与起点重合，只交汇一次）
+  return pts;
+}
+/* 每次刷新/开始用当前时间做种子 -> 事件每次不同 */
+let DEMO_DATA = generateSimData(Date.now() & 0x7fffffff);
+</script>
+
+<!-- Three.js：本地离线加载（与 demo.html 同目录的 three.min.js），失败自动回退程序化模型 -->
+<script src="three.min.js"></script>
+<!-- GLTFLoader：加载 models/scenery/ 下用户放置的写实树木 GLB；缺失则自动用程序化写实树 -->
+<script src="GLTFLoader.js"></script>
+<script>
+"use strict";
+/* ---------- 前端日志（离线版：仅 console）---------- */
+function logFrontend(entry, level="INFO"){
+  console.log(`[DroneSim Demo] [${level}] ${entry}`);
+}
+
+/* ---------- 全局状态 ---------- */
+const state = {
+  simData: DEMO_DATA,
+  playTime: 0, playing:false, paused:false, speed:1, finished:false,
+  rainActive:false, lastFrameDt:0,
+};
+
+/* ---------- DOM ---------- */
+const $ = id => document.getElementById(id);
+const menuScreen = $("menu-screen"), flightScreen = $("flight-screen");
+const canvas = $("three-canvas"), btnStart = $("btn-start");
+const inputMinutes = $("input-minutes"), inputSeed = $("input-seed");
+const menuStatus = $("menu-status");
+const hudTime=$("hud-time"), hudLatlon=$("hud-latlon"), hudAlt=$("hud-alt"),
+      hudBattery=$("hud-battery"), hudMode=$("hud-mode"), hudEvent=$("hud-event"),
+      hudCamHint=$("hud-cam-hint");
+const timelineFill=$("timeline-fill"), timelineLabel=$("timeline-label");
+const btnPause=$("btn-pause"), btnSpeed1=$("btn-speed1"), btnSpeed4=$("btn-speed4"),
+      btnSpeed8=$("btn-speed8"), btnBack=$("btn-back"), finishBadge=$("finish-badge");
+const overlay=$("overlay"), overlayMsg=$("overlay-msg");
+
+/* ---------- Three.js 变量 ---------- */
+let scene, camera, renderer, droneGroup, rainPoints, groundMesh, homeMarker, groundGrid;
+let droneTrail = [], trailLine = null;
+let lastDronePos = new THREE.Vector3(0,30,0);   /* 初始高度 30m（高于林冠 24m 之上 6m 安全裕量） */
+let clock = new THREE.Clock();
+let trailPointCounter = 0;
+const FOLLOW_DIST = 46;   /* 相机跟随距离：树林 800m 场景，46m 能看到成片树木 */
+const camOrbit = {        /* 球形坐标相机轨道（自动跟随 + 手动拖动 + 缩放） */
+  target: new THREE.Vector3(0,30,0),
+  followTheta:0.6, followPhi:0.35, userTheta:0.6, userPhi:0.35,
+  theta:0.6, phi:0.35, dist:FOLLOW_DIST,
+  autoFollow:true, dragging:false, lastX:0, lastY:0
+};
+function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
+
+/* ---------- AI 决策层：避障（绕开树木）+ 雨中找遮蔽（钻大树下） ---------- */
+/* 用 treeLayout 做实时航向决策（体现 AI 程序作用，而非固定轨迹）：
+   1) 避障：对 12m 内的每棵树的树干做斥力累积，横向推开无人机（绕开）。
+   2) 雨中：若 raining，把无人机水平引向附近“冠层最大”的 3 棵树下（遮蔽），
+      并把目标高度降到 10m（钻树冠之下避雨）；非雨时目标高度 30m（林冠之上）。
+   3) 高度：30m（常态）/ 10m（雨）之间平滑过渡，绝不贴地（>=8m 安全下限）。 */
+const DRONE_PHYS = {
+  cruiseAlt: 30.0,        // 非雨：林冠(最高24m)+6m 安全裕量，常态巡航
+  rainShelterAlt: 10.0,   // 雨：钻到最大树冠层之下避雨
+  hardFloor: 8.0,         // 任何情况最低高度（离地安全）
+  repelRadius: 12.0,      // 避障斥力作用半径（米）
+  repelStrength: 2.4,     // 斥力强度系数（米/帧 量级）
+  rainShelterPull: 0.02,  // 雨中向遮蔽点的水平牵引系数
+  altLerp: 0.04,          // 高度过渡系数（慢，平滑爬升/下降）
+  cruiseSpeed: 14.0,      // 物理巡航速度上限（m/s，真实多旋翼 10~15m/s）
+  maxClimbRate: 4.0,      // 爬升/下降率上限（m/s，真实多旋翼 2~4m/s）
+};
+let treeSpatialGrid = null;   // 树木空间网格（加速 O(1) 邻居查询）
+function _buildTreeSpatialGrid(){
+  if (!treeLayout) return;
+  const CELL = 8.0;   // 网格 cell 边长（米）
+  const g = new Map();
+  treeLayout.forEach((t)=>{
+    // 只要“大冠层”树做避障/遮蔽（冠半径 > 中位，小灌木不挡航向）
+    const medR = TREE_CONFIG.canopyRadius[0] + (TREE_CONFIG.canopyRadius[1]-TREE_CONFIG.canopyRadius[0])*0.5;
+    if (t.r < medR) return;
+    const cx = Math.floor(t.x/CELL), cz = Math.floor(t.z/CELL);
+    const k = cx + "," + cz;
+    if (!g.has(k)) g.set(k, []);
+    g.get(k).push(t);
+  });
+  treeSpatialGrid = { map: g, cell: CELL };
+}
+function _nearbyBigTrees(x, z, radius){
+  if (!treeSpatialGrid) return [];
+  const out = [], g = treeSpatialGrid.map, cell = treeSpatialGrid.cell;
+  const c0x = Math.floor((x-radius)/cell), c1x = Math.floor((x+radius)/cell);
+  const c0z = Math.floor((z-radius)/cell), c1z = Math.floor((z+radius)/cell);
+  for (let cx = c0x; cx <= c1x; cx++){
+    for (let cz = c0z; cz <= c1z; cz++){
+      const arr = g.get(cx+","+cz);
+      if (arr) for (const t of arr) out.push(t);
+    }
+  }
+  return out;
+}
+/* 航向决策：返回 {repelX, repelZ, shelterX, shelterZ, altTarget} */
+function _droneDecision(wx, wz, raining){
+  const nearby = _nearbyBigTrees(wx, wz, DRONE_PHYS.repelRadius);
+  let rx = 0, rz = 0;
+  let sx = 0, sz = 0, shelterN = 0;
+  for (const t of nearby){
+    const dx = wx - t.x, dz = wz - t.z;
+    const d = Math.sqrt(dx*dx + dz*dz);
+    if (d < 0.01) continue;
+    // 避障斥力（越近越强，逆距离衰减）
+    if (d < DRONE_PHYS.repelRadius){
+      const f = DRONE_PHYS.repelStrength * (1 - d/DRONE_PHYS.repelRadius) * (DRONE_PHYS.repelRadius/d);
+      rx += (dx/d)*f; rz += (dz/d)*f;
+    }
+    // 雨中：冠层越大越适合做遮蔽点，累加冠层中心（加权）
+    if (raining){
+      const w = t.r;
+      sx += t.x * w; sz += t.z * w; shelterN += w;
+    }
+  }
+  let shelterX = null, shelterZ = null;
+  if (raining && shelterN > 0){
+    shelterX = sx/shelterN; shelterZ = sz/shelterN;
+  }
+  const altTarget = raining ? DRONE_PHYS.rainShelterAlt : DRONE_PHYS.cruiseAlt;
+  return { repelX: rx, repelZ: rz, shelterX, shelterZ, altTarget };
+}
+
+/* ---------- AI 飞行控制器（速度由算法算出，非写死规则） ---------- */
+/* 无人机不再沿 latOff*100 线性漂移 + 斥力叠加，而是：
+   - 航点跟踪（seek/arrive）：飞向当前航点，期望速度 = min(巡航速度, 距离比例)
+   - 避障：斥力改速度方向（绕开树），被挡时降速
+   - 雨遮蔽：雨中速度向最大树冠中心牵引 + 高度降到雨遮蔽高度
+   - 高度：向目标高度（雨/非雨）平滑爬升/下降，升/降率有限
+   位置 = 上一帧位置 + 速度*dt（积分），所以速度真正由 AI 算法算出且符合物理。 */
+let _droneVel = { x:0, z:0, y:0 };   // 当前速度向量（m/s）
+let _curWp = { x:0, z:0 };          // 当前航点（世界坐标）
+let _wpIndex = 0;
+let _activeRoute = null;           // 本次飞行航线（开放环，由 generateSimData 生成；未开始时为 null）
+let _rtbActive = false;           // 硬件类事件激活时，直线返回原点
+const WP_ROUTE = [   // 备用巡检航线（仅当没有 per-run route 时兜底；围绕 home 的开放环）
+  { x:0, z:0 }, { x:120, z:0 }, { x:180, z:-80 }, { x:120, z:-180 },
+  { x:0, z:-220 }, { x:-120, z:-180 }, { x:-180, z:-80 }, { x:-120, z:0 },
+  { x:0, z:60 }, { x:0, z:0 },
+];
+/* AI 飞行控制器：
+   - 正常：沿 per-run 开放环航线（_activeRoute）航点跟踪 + 避障 + 雨遮蔽
+   - 硬件类事件（rtb）：统一“直线返回原点”（_rtbActive，直线 seek 到 (0,0)）
+   - 位置 = 上一帧 + 速度*dt（积分），速度由算法算出且符合物理 */
+function _droneController(px, pz, py, raining){
+  // 0) 硬件类事件 -> 直线返回原点（统一应对方法）
+  if (_rtbActive){
+    const hx = 0, hz = 0;
+    const dx = hx - px, dz = hz - pz;
+    const d = Math.sqrt(dx*dx + dz*dz);
+    const cruise = DRONE_PHYS.cruiseSpeed;
+    let vx = d>0.5 ? (dx/d)*Math.min(cruise, d*0.5) : 0;
+    let vz = d>0.5 ? (dz/d)*Math.min(cruise, d*0.5) : 0;
+    // 高度：返航时保持巡航高度（非雨）或雨遮蔽高度（雨）
+    const targetAlt = Math.max(DRONE_PHYS.hardFloor, raining ? DRONE_PHYS.rainShelterAlt : DRONE_PHYS.cruiseAlt);
+    let vy = Math.max(-DRONE_PHYS.maxClimbRate, Math.min(DRONE_PHYS.maxClimbRate, targetAlt - py));
+    const lp = 0.15;
+    _droneVel.x += (vx - _droneVel.x)*lp;
+    _droneVel.z += (vz - _droneVel.z)*lp;
+    _droneVel.y += (vy - _droneVel.y)*lp;
+    return _droneVel;
+  }
+  // 1) 选当前航点：沿 _activeRoute（per-run 开放环）航点跟踪，距离 < 30m 时推进
+  const route = _activeRoute || WP_ROUTE;
+  const wp = route[_wpIndex % route.length];
+  const dx = wp.x - px, dz = wp.z - pz;
+  const distToWp = Math.sqrt(dx*dx + dz*dz);
+  // 2) 避障斥力 + 雨遮蔽（来自 _droneDecision）
+  const dec = _droneDecision(px, pz, raining);
+  // 3) 航点方向速度（arrive 距离 < 30m 时降速）
+  const cruise = DRONE_PHYS.cruiseSpeed;
+  let vx, vz;
+  if (distToWp < 30){
+    _wpIndex = (_wpIndex + 1) % route.length;
+    const nw = route[_wpIndex];
+    const ndx = nw.x - px, ndz = nw.z - pz; const nd = Math.sqrt(ndx*ndx+ndz*ndz)||1;
+    vx = (ndx/nd)*cruise*0.5; vz = (ndz/nd)*cruise*0.5;
+  } else {
+    const spd = Math.min(cruise, distToWp*0.3);
+    vx = (dx/distToWp)*spd; vz = (dz/distToWp)*spd;
+  }
+  // 4) 避障斥力（转向绕开）
+  vx += dec.repelX; vz += dec.repelZ;
+  // 5) 雨中遮蔽牵引（向最大树冠中心）
+  if (raining && dec.shelterX != null){
+    const shdX = dec.shelterX - px, shdZ = dec.shelterZ - pz;
+    const shd = Math.sqrt(shdX*shdX + shdZ*shdZ);
+    if (shd > 1.0){
+      const pull = Math.min(cruise*0.4, shd*0.5);
+      vx += (shdX/shd)*pull; vz += (shdZ/shd)*pull;
+    }
+  }
+  // 6) 被障碍挡住时降速
+  const repelMag = Math.sqrt(dec.repelX*dec.repelX + dec.repelZ*dec.repelZ);
+  const slowFactor = Math.max(0.25, 1.0 - repelMag/6.0);
+  vx *= slowFactor; vz *= slowFactor;
+  // 7) 水平限速
+  const hSpd = Math.sqrt(vx*vx+vz*vz);
+  if (hSpd > cruise){ vx = vx/hSpd*cruise; vz = vz/hSpd*cruise; }
+  // 8) 高度速度
+  const targetAlt = Math.max(DRONE_PHYS.hardFloor, dec.altTarget);
+  let vy = Math.max(-DRONE_PHYS.maxClimbRate, Math.min(DRONE_PHYS.maxClimbRate, targetAlt - py));
+  // 9) 一阶低通平滑
+  const lp = 0.12;
+  _droneVel.x = _droneVel.x + (vx - _droneVel.x)*lp;
+  _droneVel.z = _droneVel.z + (vz - _droneVel.z)*lp;
+  _droneVel.y = _droneVel.y + (vy - _droneVel.y)*lp;
+  return _droneVel;
+}
+
+const DRONE_COLORS = { body:0x3a4a6a, arm:0x2a3a5a, motor:0x556688, prop:0xaaccff, light:0x33ff66 };
+
+// 【树木系统 v2 · 密集真实树林】（参考现实温带混交林：落叶+针叶混交、
+//  树木间距 3~6m、冠层密度 50%+、含下木灌木、远景剪影树林、薄雾纵深）
+// 性能：近景树用 InstancedMesh（1 棵=1 实例，8 个 draw call 搞定 1000 棵，含落叶层），
+//      远景剪影/下木/草丛也用 InstancedMesh，总 draw call < 22，1000 棵仍 60fps。
+const TREE_CONFIG = {
+  forestGroundSize: 1600,      // 地图 800 -> 1600m（256 公顷，背景全树林）
+  forestCount: 3000,          // 树木 -> 3000（密集混交林，地图背景全树）
+  treeHeights: [7, 24],       // 树高 7~24m（林冠层次：矮 7 / 中 12 / 大冠层 24）
+  canopyRadius: [2.2, 6.0],   // 冠半径（加宽，林冠更密）
+  clusterCount: 240,         // 现实森林：树木成群（~240 簇心，每簇 10~16 棵，大地图密簇）
+  clusterRadius: [2.5, 5.5], // 簇内树木散落半径
+  clusterGap: [9, 16],       // 簇心间距下限（现实林块间距）
+  seedOffset: 0.35,
+  trunkColor: 0x6b4f3a, trunkColor2: 0x4a3426,
+  leafColor:  0x2f7a3f, leafColor2: 0x3f9a4f,
+  pineLeafColor: 0x1f5f2f, pineLeafColor2: 0x2f7a3f,
+  trunkSegs: 8, leafSegs: 16,
+  mixRatio: 0.6,             // 60% 落叶 + 40% 针叶（现实混交林比例）
+  glbDir: "models/scenery/", // 用户可放 GLB 替换
+  glbTargetHeight: 14.0,
+  // 远景剪影树林层（8 圈，越远越暗+被雾吞，营造"无边树林"纵深）
+  farRings: [ {dist:380, count:140, h:30, c:0x1a2a20},
+              {dist:500, count:170, h:42, c:0x131f18},
+              {dist:650, count:200, h:54, c:0x0d1510},
+              {dist:800, count:240, h:66, c:0x080d0a},
+              {dist:1000, count:280, h:78, c:0x060a08},
+              {dist:1200, count:320, h:90, c:0x040806},
+              {dist:1400, count:360, h:102, c:0x020604},
+              {dist:1600, count:400, h:114, c:0x010302} ],
+  // 雾（现实森林薄雾感；地图 1600m 雾扩展到 900m）
+  fogColor: 0x0e1a14, fogNear: 80, fogFar: 900,
+};
+let treeGroup = null, treeInstanced = null, treesAreGLB = false;
+let treeLayout = null;
+let farForest = null;    // 远景剪影
+let undergrowth = null;  // 下木灌木
+let grassRocks = null;   // 草丛（岩石已移除）
+
+/* 确定性伪随机（布局可复现，每次启动一致） */
+function _seededRandom(seed){
+  const x = Math.sin(seed) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+/* 生成树林布局（现实森林簇分布 + 空间网格 O(n) 邻居检查）：
+   现实森林树木成群（林块）：先生成 ~120 个簇心（间距 9~16m，避 home 区+航线走廊），
+   每簇在 2.5~5.5m 半径内散射 10~16 棵树（簇内间距 1.5~2.2m），总棵数取 forestCount 上限。
+   网格 cell=2m，邻居检查只看 3x3 相邻 cell，O(n) 不随密度卡。 */
+function _generateTreeLayout(count, groundSize, seed){
+  const half = groundSize/2, pad = 24;
+  const lo = -half + pad, hi = half - pad;
+  const CC = TREE_CONFIG.clusterCount || 120;
+  const CELL = 2.0;                          // 网格 cell 边长（>= 簇内最小间距）
+  const grid = new Map();                    // key = cx + cy*BIG -> [treeIdx]
+  const out = [];
+  const gridKey = (x,z) => (Math.floor(x/CELL) + 1000) + "," + (Math.floor(z/CELL) + 1000);
+  function tryPlace(x, z, h, r, rot, pine){
+    // 清 home 区 + 航线走廊
+    if (Math.sqrt(x*x + z*z) < 12) return false;
+    if (Math.abs(x) < 40 && Math.abs(z) < 160) return false;
+    // 网格邻居检查（3x3 cell）
+    const cx = Math.floor(x/CELL) + 1000, cz = Math.floor(z/CELL) + 1000;
+    for (let ax = -1; ax <= 1; ax++){
+      for (let az = -1; az <= 1; az++){
+        const k = (cx+ax) + "," + (cz+az);
+        const arr = grid.get(k);
+        if (!arr) continue;
+        for (const idx of arr){
+          const t = out[idx];
+          const dx = t.x - x, dz = t.z - z;
+          if (dx*dx + dz*dz < 2.25){ return false; }   // 间距 1.5m（簇内密林 1.5~2.2m）
+        }
+      }
+    }
+    out.push({ x, z, h, r, rot, pine });
+    const idx = out.length - 1;
+    const k = cx + "," + cz;
+    if (!grid.has(k)) grid.set(k, []);
+    grid.get(k).push(idx);
+    return true;
+  }
+  // 1) 生成簇心（现实林块）
+  const clusters = [];
+  let cg = 0;
+  while (clusters.length < CC && cg < CC * 60){
+    cg++;
+    const cx0 = lo + _seededRandom(cg*1.31 + seed) * (hi - lo);
+    const cz0 = lo + _seededRandom(cg*2.93 + seed + 0.4) * (hi - lo);
+    if (Math.sqrt(cx0*cx0 + cz0*cz0) < 14) continue;            // 清 home
+    if (Math.abs(cx0) < 45 && Math.abs(cz0) < 170) continue;     // 清航线走廊
+    // 簇心间距 9~16m（现实林块间距）
+    let ok = true;
+    for (const c of clusters){
+      const dx = c.x - cx0, dz = c.z - cz0;
+      if (dx*dx + dz*dz < 81){ ok = false; break; }             // 9m
+    }
+    if (!ok) continue;
+    clusters.push({ x: cx0, z: cz0, per: 10 + Math.floor(_seededRandom(cg*4.7+seed)*7) });  // 每簇 10~16 棵
+  }
+  // 2) 每簇散射
+  let placed = 0;
+  for (const c of clusters){
+    if (placed >= count) break;
+    for (let k = 0; k < c.per && placed < count; k++){
+      const a = _seededRandom(cg*0.51 + c.x*0.13 + k*7.7 + seed) * Math.PI * 2;
+      const rr = TREE_CONFIG.clusterRadius[0] + _seededRandom(cg*0.71 + c.z*0.17 + k*3.3 + seed) * (TREE_CONFIG.clusterRadius[1] - TREE_CONFIG.clusterRadius[0]);
+      const x = c.x + Math.cos(a)*rr*0.6;
+      const z = c.z + Math.sin(a)*rr*0.6;
+      if (x < lo || x > hi || z < lo || z > hi) continue;
+      const h = TREE_CONFIG.treeHeights[0] + _seededRandom(cg*3.3 + c.x + k*1.7 + seed)*(TREE_CONFIG.treeHeights[1]-TREE_CONFIG.treeHeights[0]);
+      const r = TREE_CONFIG.canopyRadius[0] + _seededRandom(cg*4.9 + c.z + k*1.3 + seed)*(TREE_CONFIG.canopyRadius[1]-TREE_CONFIG.canopyRadius[0]);
+      const isPine = _seededRandom(cg*5.7 + c.x + c.z + k*0.7 + seed) > TREE_CONFIG.mixRatio;
+      if (tryPlace(x, z, h, r, _seededRandom(cg*6.1 + k*2.3 + seed)*Math.PI*2, isPine)){ placed++; }
+    }
+  }
+  // 3) 补充散布树填到 count（非簇区，现实林缘散树）
+  let sg = 0;
+  while (placed < count && sg < (count - placed) * 80){
+    sg++;
+    const x = lo + _seededRandom(sg*1.13 + seed + 50) * (hi - lo);
+    const z = lo + _seededRandom(sg*2.71 + seed + 50.5) * (hi - lo);
+    const h = TREE_CONFIG.treeHeights[0] + _seededRandom(sg*3.3+seed+51)*(TREE_CONFIG.treeHeights[1]-TREE_CONFIG.treeHeights[0]);
+    const r = TREE_CONFIG.canopyRadius[0] + _seededRandom(sg*4.9+seed+52)*(TREE_CONFIG.canopyRadius[1]-TREE_CONFIG.canopyRadius[0]);
+    const isPine = _seededRandom(sg*5.7+seed+53) > TREE_CONFIG.mixRatio;
+    if (tryPlace(x, z, h, r, _seededRandom(sg*6.1+seed+54)*Math.PI*2, isPine)) placed++;
+  }
+  return out;
+}
+
+/* 近景树林：InstancedMesh（树干 + 落叶两层冠 + 针叶三层锥 + 树影） */
+function buildForestTrees(layout, seed){
+  if (treeGroup){ scene.remove(treeGroup); treeGroup=null; }
+  if (treeInstanced){ scene.remove(treeInstanced); treeInstanced=null; }
+  treeGroup = new THREE.Group();
+  treeLayout = layout;
+
+  const n = layout.length;
+  const decCount = layout.filter(t=>!t.pine).length;
+  const pineCount = n - decCount;
+
+  const trunkGeo = new THREE.CylinderGeometry(0.5, 0.9, 1, TREE_CONFIG.trunkSegs, 1, true);
+  const trunkMat = new THREE.MeshPhongMaterial({ color:TREE_CONFIG.trunkColor, shininess:8, flatShading:true });
+  const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, n);
+
+  const decGeo = new THREE.SphereGeometry(1, TREE_CONFIG.leafSegs, Math.max(10, Math.floor(TREE_CONFIG.leafSegs*0.8)));
+  const decA = new THREE.InstancedMesh(decGeo,
+    new THREE.MeshPhongMaterial({ color:TREE_CONFIG.leafColor,  shininess:12, flatShading:true, transparent:true, opacity:0.95 }), decCount);
+  const decB = new THREE.InstancedMesh(decGeo,
+    new THREE.MeshPhongMaterial({ color:TREE_CONFIG.leafColor2, shininess:14, flatShading:true, transparent:true, opacity:0.9 }), decCount);
+
+  const pineGeo = new THREE.ConeGeometry(1, 1, 6);
+  const p0 = new THREE.InstancedMesh(pineGeo, new THREE.MeshPhongMaterial({ color:TREE_CONFIG.pineLeafColor,   shininess:8, flatShading:true, transparent:true, opacity:0.95 }), pineCount);
+  const p1 = new THREE.InstancedMesh(pineGeo, new THREE.MeshPhongMaterial({ color:TREE_CONFIG.pineLeafColor2,  shininess:8, flatShading:true, transparent:true, opacity:0.9 }), pineCount);
+  const p2 = new THREE.InstancedMesh(pineGeo, new THREE.MeshPhongMaterial({ color:TREE_CONFIG.pineLeafColor2,  shininess:8, flatShading:true, transparent:true, opacity:0.85 }), pineCount);
+
+  const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), P = new THREE.Vector3(), S = new THREE.Vector3();
+  const yAxis = new THREE.Vector3(0,1,0);
+  let di=0, pi=0;
+  /* 现实森林改进：逐棵颜色微变 + 树干倾斜 2~5 度 */
+  const leafPal = [new THREE.Color(0x2f7a3f), new THREE.Color(0x3f9a4f), new THREE.Color(0x54a862), new THREE.Color(0x6fbf7f)];
+  const pinePal = [new THREE.Color(0x1f5f2f), new THREE.Color(0x2f7a3f), new THREE.Color(0x3a8a4a)];
+  const trunkPal = [new THREE.Color(0x6b4f3a), new THREE.Color(0x5a3f2a), new THREE.Color(0x7a5f4a)];
+  const cTmp = new THREE.Color(), qTmp = new THREE.Quaternion(), zAxis = new THREE.Vector3(0,0,1);
+  layout.forEach((t, i)=>{
+    const trunkH = t.h * 0.45, canopyH = t.h - trunkH;
+    /* 倾斜：绕 Z 轴 2~5 度（真实树微斜） */
+    const tiltDeg = 2 + _seededRandom(i*9.1+seed)*3.0;
+    const tilt = tiltDeg * (_seededRandom(i*9.7+seed)>0.5?1:-1) * (Math.PI/180);
+    qTmp.setFromAxisAngle(yAxis, t.rot);
+    qTmp.premultiply(new THREE.Quaternion().setFromAxisAngle(zAxis, tilt));
+    P.set(t.x, trunkH/2, t.z); S.set(t.r*0.45, trunkH, t.r*0.45);
+    M.compose(P, qTmp, S);
+    trunks.setMatrixAt(i, M);
+    trunks.setColorAt(i, trunkPal[i % 3]);
+    if (!t.pine){
+      const cy = trunkH + canopyH*0.5;
+      decA.setColorAt(di, leafPal[i % 4]);
+      decB.setColorAt(di, leafPal[(i+1) % 4]);
+      P.set(t.x, cy, t.z); S.set(t.r, canopyH*0.55, t.r);
+      Q.setFromAxisAngle(yAxis, t.rot+0.3); M.compose(P,Q,S); decA.setMatrixAt(di, M);
+      P.set(t.x, cy+canopyH*0.4, t.z); S.set(t.r*0.8, canopyH*0.4, t.r*0.8); M.compose(P,Q,S); decB.setMatrixAt(di, M);
+      di++;
+    } else {
+      const L = [
+        {y: trunkH*0.5, sy: canopyH*0.5, sx: t.r},
+        {y: trunkH + canopyH*0.45, sy: canopyH*0.4, sx: t.r*0.8},
+        {y: trunkH + canopyH*0.75, sy: canopyH*0.35, sx: t.r*0.55},
+      ];
+      const pM = [p0,p1,p2];
+      L.forEach((d,k)=>{ P.set(t.x, d.y + d.sy/2, t.z); S.set(d.sx, d.sy, d.sx);
+        Q.setFromAxisAngle(yAxis, t.rot + k*0.6); M.compose(P,Q,S);
+        pM[k].setColorAt(pi, pinePal[(i+k) % 3]);
+        pM[k].setMatrixAt(pi, M); });
+      pi++;
+    }
+  });
+  trunks.instanceMatrix.needsUpdate = true;
+  [decA,decB,p0,p1,p2].forEach(m=>{ if(m.count) m.instanceMatrix.needsUpdate = true; });
+
+  // 树影（实例化圆片，贴地）
+  const shGeo = new THREE.CircleGeometry(1, 16);
+  const shMat = new THREE.MeshBasicMaterial({ color:0x000000, transparent:true, opacity:0.18, depthWrite:false, side:THREE.DoubleSide });
+  const shadows = new THREE.InstancedMesh(shGeo, shMat, n);
+  layout.forEach((t, i)=>{ P.set(t.x, 0.02, t.z); S.set(t.r*1.1, 1, t.r*1.1);
+    Q.identity(); M.compose(P,Q,S); shadows.setMatrixAt(i, M); });
+  shadows.rotation.x = -Math.PI/2;
+  shadows.instanceMatrix.needsUpdate = true;
+
+  if (trunks.instanceColor) trunks.instanceColor.needsUpdate = true;
+  [decA,decB,p0,p1,p2].forEach(m=>{ if(m.instanceColor) m.instanceColor.needsUpdate = true; });
+  /* 落叶层：每树 1 个浅绿贴地圆片（现实森林林下落叶） */
+  const leafGeo = new THREE.CircleGeometry(1, 12);
+  const leafMat = new THREE.MeshBasicMaterial({ color:0x4a6f35, transparent:true, opacity:0.22, depthWrite:false, side:THREE.DoubleSide });
+  const leafLayer = new THREE.InstancedMesh(leafGeo, leafMat, n);
+  layout.forEach((t, i)=>{ P.set(t.x, 0.03, t.z); S.set(t.r*1.2, 1, t.r*1.2);
+    Q.identity(); M.compose(P,Q,S); leafLayer.setMatrixAt(i, M); });
+  leafLayer.rotation.x = -Math.PI/2;
+  leafLayer.instanceMatrix.needsUpdate = true;
+  treeGroup.add(trunks, decA, decB, p0, p1, p2, shadows, leafLayer);
+  scene.add(treeGroup);
+  treeInstanced = treeGroup;
+  logFrontend("树林：近景 " + n + " 棵（落叶 " + decCount + " / 针叶 " + pineCount + "，InstancedMesh 6+1 draw call）", "INFO");
+}
+
+/* 远景剪影树林（InstancedMesh 4 draw call：3 层针叶锥 + 阔叶球，越远越暗+雾吞，高数量仍 60fps） */
+function buildFarForestRings(){
+  if (farForest){ scene.remove(farForest); farForest=null; }
+  farForest = new THREE.Group();
+  const total = TREE_CONFIG.farRings.reduce((a,r)=>a+r.count, 0);
+  const totalPine = Math.ceil(total/2), totalDec = total - totalPine;
+  const coneGeo = new THREE.ConeGeometry(1, 1, 5);
+  const sphereGeo = new THREE.SphereGeometry(1, 7, 5);
+  const midRing = TREE_CONFIG.farRings[Math.floor(TREE_CONFIG.farRings.length/2)];
+  const coneMat = new THREE.MeshPhongMaterial({ color:midRing.c, flatShading:true, transparent:true, opacity:0.72 });
+  const decMat  = new THREE.MeshPhongMaterial({ color:midRing.c, flatShading:true, transparent:true, opacity:0.66 });
+  const c0 = new THREE.InstancedMesh(coneGeo, coneMat, totalPine);
+  const c1 = new THREE.InstancedMesh(coneGeo, coneMat, totalPine);
+  const c2 = new THREE.InstancedMesh(coneGeo, coneMat, totalPine);
+  const dec = new THREE.InstancedMesh(sphereGeo, decMat, totalDec);
+  const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), P = new THREE.Vector3(), S = new THREE.Vector3();
+  const yAxis = new THREE.Vector3(0,1,0);
+  let pi=0, di2=0;
+  TREE_CONFIG.farRings.forEach((ring, ri)=>{
+    for (let i=0;i<ring.count;i++){
+      const a = (i/ring.count)*Math.PI*2 + _seededRandom(i*1.7+ri)*0.5;
+      const jitter = 0.85 + _seededRandom(i*3.1+ri)*0.3;
+      const x = Math.cos(a)*ring.dist*jitter, z = Math.sin(a)*ring.dist*jitter;
+      const isPine = (i%2===0);
+      if (isPine){
+        const layers=[ {dy:0.22, sy:0.50, sx:1.0},
+                       {dy:0.55, sy:0.42, sx:0.75},
+                       {dy:0.82, sy:0.34, sx:0.5} ];
+        const pM=[c0,c1,c2];
+        layers.forEach((L,k)=>{
+          const sc=ring.h*0.32*L.sx;
+          P.set(x, ring.h*L.dy, z); S.set(sc, ring.h*L.sy, sc);
+          Q.setFromAxisAngle(yAxis, _seededRandom(i*7.3+ri)*6.28); M.compose(P,Q,S);
+          pM[k].setMatrixAt(pi, M);
+        });
+        pi++;
+      } else {
+        const sc=ring.h*0.32;
+        P.set(x, ring.h*0.55, z); S.set(sc, ring.h*0.45, sc);
+        Q.identity(); M.compose(P,Q,S);
+        dec.setMatrixAt(di2++, M);
+      }
+    }
+  });
+  c0.count=pi; c1.count=pi; c2.count=pi;
+  [c0,c1,c2].forEach(m=>m.instanceMatrix.needsUpdate=true);
+  dec.count=di2; dec.instanceMatrix.needsUpdate=true;
+  farForest.add(c0,c1,c2,dec);
+  scene.add(farForest);
+  logFrontend("树林：远景剪影 " + total + " 棵（4 圈 InstancedMesh，越远越暗+雾吞，仅 4 draw call）", "INFO");
+}
+
+/* 下木灌木（现实森林地面层：矮灌木/蕨类点缀，InstancedMesh 2 种材质） */
+function buildUndergrowth(layout){
+  if (undergrowth){ scene.remove(undergrowth); undergrowth=null; }
+  undergrowth = new THREE.Group();
+  const bushGeo = new THREE.SphereGeometry(1, 8, 6);
+  const m1 = new THREE.MeshPhongMaterial({ color:0x2a5f33, shininess:6, flatShading:true, transparent:true, opacity:0.9 });
+  const m2 = new THREE.MeshPhongMaterial({ color:0x3a7a45, shininess:8, flatShading:true, transparent:true, opacity:0.85 });
+  const bushA = new THREE.InstancedMesh(bushGeo, m1, 720);
+  const bushB = new THREE.InstancedMesh(bushGeo, m2, 720);
+  const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), P = new THREE.Vector3(), S = new THREE.Vector3();
+  const yAxis = new THREE.Vector3(0,1,0);
+  let ai=0, bi=0;
+  for (let i=0;i<1800 && layout.length;i++){
+    const t = layout[i % layout.length];
+    const off = _seededRandom(i*2.3) * Math.PI * 2;
+    const dist = 1.5 + _seededRandom(i*3.7) * 3.0;
+    const x = t.x + Math.cos(off)*dist, z = t.z + Math.sin(off)*dist;
+    if (Math.sqrt(x*x+z*z) < 12) continue;
+    if (Math.abs(x) < 40 && Math.abs(z) < 160) continue;
+    const s = 0.6 + _seededRandom(i*5.1)*0.9;
+    P.set(x, s*0.3, z); S.set(s, s*0.6, s);
+    Q.setFromAxisAngle(yAxis, _seededRandom(i*7.7)*Math.PI*2); M.compose(P,Q,S);
+    if (i%2===0){ if(ai<720) bushA.setMatrixAt(ai++, M); }
+    else         { if(bi<720) bushB.setMatrixAt(bi++, M); }
+  }
+  bushA.count = ai; bushB.count = bi;
+  bushA.instanceMatrix.needsUpdate = true; bushB.instanceMatrix.needsUpdate = true;
+  undergrowth.add(bushA, bushB);
+  scene.add(undergrowth);
+  logFrontend("下木灌木：" + (ai+bi) + " 簇（InstancedMesh 2 draw call）", "INFO");
+}
+
+/* 草地草丛（现实森林地面层：草点缀，InstancedMesh 2 draw call；岩石已移除） */
+function buildGrassAndRocks(layout, seed){
+  if (grassRocks){ scene.remove(grassRocks); grassRocks=null; }
+  grassRocks = new THREE.Group();
+  const gsz = TREE_CONFIG.forestGroundSize, half = gsz/2;
+  const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), P = new THREE.Vector3(), S = new THREE.Vector3();
+  const yAxis = new THREE.Vector3(0,1,0);
+  const grassGeo = new THREE.ConeGeometry(0.15, 0.5, 4);
+  const gm1 = new THREE.MeshPhongMaterial({ color:0x3a6f35, shininess:4, flatShading:true });
+  const gm2 = new THREE.MeshPhongMaterial({ color:0x4a8f45, shininess:4, flatShading:true });
+  const G_COUNT = 1500;
+  const gA = new THREE.InstancedMesh(grassGeo, gm1, G_COUNT);
+  const gB = new THREE.InstancedMesh(grassGeo, gm2, G_COUNT);
+  let gi = 0, guard = 0;
+  while (gi < G_COUNT*2 && guard < G_COUNT*40){
+    guard++;
+    const x = _seededRandom(guard*0.71)*gsz - half;
+    const z = _seededRandom(guard*1.13)*gsz - half;
+    if (Math.sqrt(x*x+z*z) < 8) continue;
+    if (Math.abs(x) < 35 && Math.abs(z) < 150) continue;
+    const s = 0.7 + _seededRandom(guard*2.3)*0.8;
+    P.set(x, 0.25*s, z); S.set(s, s, s);
+    Q.setFromAxisAngle(yAxis, _seededRandom(guard*3.7)*6.28); M.compose(P,Q,S);
+    if (guard % 2 === 0){ gA.setMatrixAt(gi % G_COUNT, M); } else { gB.setMatrixAt(gi % G_COUNT, M); }
+    gi++;
+  }
+  gA.count = Math.min(G_COUNT, Math.floor(gi/2)); gB.count = Math.min(G_COUNT, gi - Math.floor(gi/2));
+  gA.instanceMatrix.needsUpdate = true; gB.instanceMatrix.needsUpdate = true;
+  grassRocks.add(gA, gB);
+  scene.add(grassRocks);
+  logFrontend("地面层：草丛 " + (gA.count+gB.count) + " 簇（InstancedMesh 2 draw call，已移除岩石）", "INFO");
+}
+
+/* ---------- 无人机程序化模型（X 形机臂 + 电机 + 螺旋桨 + 状态灯）---------- */
+function buildDroneModel(){
+  const g = new THREE.Group();
+  const bodyGeo = new THREE.BoxGeometry(1.2, 0.5, 1.2);
+  const bodyMat = new THREE.MeshPhongMaterial({ color: DRONE_COLORS.body, shininess: 60 });
+  g.add(new THREE.Mesh(bodyGeo, bodyMat));
+  const armLen = 1.8, armW = 0.15;
+  const armGeo = new THREE.BoxGeometry(armLen, 0.12, armW);
+  const armMat = new THREE.MeshPhongMaterial({ color: DRONE_COLORS.arm });
+  const armAngles = [45, 135, 225, 315];
+  for (const angle of armAngles){
+    const rad = angle * Math.PI / 180;
+    const arm = new THREE.Mesh(armGeo, armMat);
+    arm.position.set(Math.cos(rad)*armLen/2, 0, Math.sin(rad)*armLen/2);
+    arm.rotation.y = -rad; g.add(arm);
+    const motorGeo = new THREE.CylinderGeometry(0.12, 0.15, 0.25, 12);
+    const motorMat = new THREE.MeshPhongMaterial({ color: DRONE_COLORS.motor });
+    const motor = new THREE.Mesh(motorGeo, motorMat);
+    motor.position.set(Math.cos(rad)*armLen, 0.15, Math.sin(rad)*armLen); g.add(motor);
+    const propGeo = new THREE.BoxGeometry(1.0, 0.03, 0.1);
+    const propMat = new THREE.MeshPhongMaterial({ color: DRONE_COLORS.prop, transparent: true, opacity: 0.7 });
+    const prop = new THREE.Mesh(propGeo, propMat);
+    prop.position.copy(motor.position).add(new THREE.Vector3(0, 0.18, 0));
+    prop.userData.spinSpeed = 10 + Math.random()*2;
+    prop.userData.spinPhase = Math.random()*Math.PI*2;
+    prop.name = "prop"; g.add(prop);
+    const lightGeo = new THREE.SphereGeometry(0.06, 8, 8);
+    const lightMat = new THREE.MeshBasicMaterial({ color: angle < 180 ? 0x33ff66 : DRONE_COLORS.light });
+    const light = new THREE.Mesh(lightGeo, lightMat);
+    light.position.set(Math.cos(rad)*armLen, 0.05, Math.sin(rad)*armLen); g.add(light);
+  }
+  const gpsGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.05, 16);
+  const gps = new THREE.Mesh(gpsGeo, new THREE.MeshPhongMaterial({ color: 0x889999 }));
+  gps.position.y = 0.3; g.add(gps);
+  const camGeo = new THREE.SphereGeometry(0.15, 12, 12);
+  const cam = new THREE.Mesh(camGeo, new THREE.MeshPhongMaterial({ color: 0x111122 }));
+  cam.position.y = -0.3; g.add(cam);
+  g.scale.set(0.6, 0.6, 0.6);
+  return g;
+}
+
+/* ---------- 雨粒子系统（以无人机为中心的局部坐标）---------- */
+const RAIN_COUNT = 2000;
+let rainVelocities;
+function buildRainSystem(){
+  const geo = new THREE.BufferGeometry();
+  const positions = new Float32Array(RAIN_COUNT * 3);
+  rainVelocities = new Float32Array(RAIN_COUNT * 3);
+  for (let i = 0; i < RAIN_COUNT; i++){
+    positions[i*3]   = (Math.random()-0.5) * 100;
+    positions[i*3+1] = Math.random() * 45;
+    positions[i*3+2] = (Math.random()-0.5) * 100;
+    rainVelocities[i*3]   = (Math.random()-0.5) * 0.5;
+    rainVelocities[i*3+1] = -(8 + Math.random()*4);
+    rainVelocities[i*3+2] = (Math.random()-0.5) * 0.5;
+  }
+  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  const mat = new THREE.PointsMaterial({
+    color: 0x88bbee, size: 0.15, transparent: true, opacity: 0.7,
+    depthWrite: false, blending: THREE.AdditiveBlending,
+  });
+  rainPoints = new THREE.Points(geo, mat);
+  rainPoints.visible = false;
+  scene.add(rainPoints);
+}
+function updateRain(){
+  if (!rainPoints || !rainPoints.visible) return;
+  const pos = rainPoints.geometry.attributes.position.array;
+  const dx = droneGroup.position.x, dy = droneGroup.position.y, dz = droneGroup.position.z;
+  for (let i = 0; i < RAIN_COUNT; i++){
+    pos[i*3]   += rainVelocities[i*3];
+    pos[i*3+1] += rainVelocities[i*3+1];
+    pos[i*3+2] += rainVelocities[i*3+2];
+    const ddx = pos[i*3] - dx, ddz = pos[i*3+2] - dz;
+    if (pos[i*3+1] < 0 || ddx*ddx + ddz*ddz > 6400){
+      pos[i*3]   = dx + (Math.random()-0.5)*100;
+      pos[i*3+1] = dy + 30 + Math.random()*20;
+      pos[i*3+2] = dz + (Math.random()-0.5)*100;
+    }
+  }
+  rainPoints.geometry.attributes.position.needsUpdate = true;
+}
+
+/* 地面：用 forestGroundSize 生成 1600x1600 */
+function _applyForestGround(){
+  if (groundMesh){ scene.remove(groundMesh); groundMesh.geometry.dispose(); }
+  if (groundGrid){ scene.remove(groundGrid); }
+  const gsz = TREE_CONFIG.forestGroundSize;
+  const groundGeo = new THREE.PlaneGeometry(gsz, gsz, 40, 40);
+  const groundMat = new THREE.MeshPhongMaterial({ color:0x0f2a14, side:THREE.DoubleSide, transparent:true, opacity:0.92 });
+  groundMesh = new THREE.Mesh(groundGeo, groundMat);
+  groundMesh.rotation.x = -Math.PI/2; groundMesh.position.y=0; scene.add(groundMesh);
+  if (groundGrid){ scene.remove(groundGrid); groundGrid=null; }
+  groundGrid = new THREE.GridHelper(gsz, 60, 0x1a3a20, 0x0f2a14);
+  groundGrid.position.y=0.01; scene.add(groundGrid);
+}
+
+/* GLB 接入（可选）：放入 models/scenery/tree.glb 等则克隆到布局位替换近景程序化树 */
+function loadSceneryGLB(onDone){
+  if (typeof THREE === "undefined" || !THREE.GLTFLoader){ onDone && onDone(false); return; }
+  const cands = ["tree.glb","trees.glb","tree_realistic.glb","oak.glb","pine.glb","forest.glb"];
+  let idx = 0;
+  function tryNext(){
+    if (idx >= cands.length){ onDone && onDone(false); return; }
+    const url = TREE_CONFIG.glbDir + cands[idx];
+    const loader = new THREE.GLTFLoader();
+    loader.load(url, (gltf) => {
+      const model = gltf.scene;
+      const box = new THREE.Box3().setFromObject(model);
+      const size = box.getSize(new THREE.Vector3());
+      const h = Math.max(size.y, 0.1);
+      const s = TREE_CONFIG.glbTargetHeight / h;
+      model.scale.set(s,s,s);
+      treesAreGLB = true;
+      const layout = treeLayout || _generateTreeLayout(TREE_CONFIG.forestCount, TREE_CONFIG.forestGroundSize, TREE_CONFIG.seedOffset);
+      layout.forEach((t, i) => {
+        const inst = model.clone();
+        inst.position.set(t.x, 0, t.z); inst.rotation.y = t.rot;
+        treeGroup.add(inst);
+      });
+      logFrontend("树林：GLB 加载成功 " + cands[idx] + "，克隆到 " + layout.length + " 个布局位 (h=" + h.toFixed(2) + ", scale=" + s.toFixed(3) + ")", "INFO");
+      onDone && onDone(true);
+    }, undefined, () => { idx++; tryNext(); });
+  }
+  tryNext();
+}
+
+/* 入口：程序化密集树林 + 远景 + 下木 + 地面；再异步探测 GLB 替换近景 */
+function buildSceneryTreesAuto(){
+  _applyForestGround();
+  const layout = _generateTreeLayout(TREE_CONFIG.forestCount, TREE_CONFIG.forestGroundSize, TREE_CONFIG.seedOffset);
+  buildForestTrees(layout, TREE_CONFIG.seedOffset);
+  buildUndergrowth(layout);
+  buildGrassAndRocks(layout, TREE_CONFIG.seedOffset);
+  buildFarForestRings();
+  logFrontend("树林升级：地面 " + TREE_CONFIG.forestGroundSize + "m / 近景 " + layout.length +
+    " 棵（密集混交林）+ 远景 " + TREE_CONFIG.farRings.reduce((a,r)=>a+r.count,0) +
+    " 棵剪影 + 下木灌木 + 雾纵深", "INFO");
+  // 可选 GLB：若用户放了 models/scenery/tree.glb，替换近景树（远景/下木保留）
+  if (typeof THREE !== "undefined" && THREE.GLTFLoader){
+    loadSceneryGLB((ok)=>{ if(!ok) logFrontend("树林：未发现本地 GLB，保持程序化密集树林","INFO"); });
+  }
+}
+
+
+/* ---------- 轨迹 ---------- */
+function buildTrail(){
+  droneTrail = [];
+  if (trailLine){ scene.remove(trailLine); trailLine.geometry.dispose(); trailLine=null; }
+}
+function addTrailPoint(pos){
+  droneTrail.push(pos.clone());
+  if (droneTrail.length>400) droneTrail.shift();
+  if (droneTrail.length>=2){
+    const geo = new THREE.BufferGeometry().setFromPoints(droneTrail);
+    const mat = new THREE.LineBasicMaterial({ color:0x44aaff, transparent:true, opacity:0.5 });
+    trailLine = new THREE.Line(geo, mat); scene.add(trailLine);
+  }
+}
+
+/* ---------- Three.js 初始化（含黑屏防护）---------- */
+function initThree(){
+  try {
+    renderer = new THREE.WebGLRenderer({ canvas, antialias:true });
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setClearColor(TREE_CONFIG.fogColor);
+
+    scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(TREE_CONFIG.fogColor, TREE_CONFIG.fogNear, TREE_CONFIG.fogFar);
+    camera = new THREE.PerspectiveCamera(55, window.innerWidth/window.innerHeight, 0.1, 3000);
+    camera.position.set(0,15,30); camera.lookAt(0,5,0);
+
+    // 初始化相机轨道：跟随目标设为无人机位置，默认跟随角
+    camOrbit.target.set(0,15,0);
+    camOrbit.followTheta = 0.6;  camOrbit.followPhi = 0.35;
+    camOrbit.userTheta = 0.6;    camOrbit.userPhi = 0.35;
+    camOrbit.theta = 0.6;        camOrbit.phi = 0.35;
+    camOrbit.dist = FOLLOW_DIST;
+
+    scene.add(new THREE.AmbientLight(0x334466,0.6));
+    const dl = new THREE.DirectionalLight(0x8899bb,0.8); dl.position.set(30,50,20); scene.add(dl);
+    const pl = new THREE.PointLight(0x4488ff,1,100); pl.position.set(0,30,0); scene.add(pl);
+
+    _applyForestGround();   /* 地面（原 buildGround 已由树林系统接管） */
+    droneGroup = buildDroneModel();
+    droneGroup.position.set(0,30,0); scene.add(droneGroup);
+    buildRainSystem(); buildTrail();
+    buildSceneryTreesAuto();   // 写实树木（程序化 + 可选 GLB）
+    _buildTreeSpatialGrid();   // AI 决策层：建树木空间网格（避障/遮蔽邻居查询）
+    _runAISelfCheck();          // 自检：物理规律 + AI 程序作用验证
+
+    window.addEventListener("resize", onResize);
+    overlay.style.display = "none";   // 成功：隐藏遮罩
+    logFrontend("Three.js 初始化成功（程序化模型）");
+  } catch(e){
+    // 关键：WebGL 不可用时不黑屏，给出可读提示 + 降级到 2D 时间轴
+    overlayMsg.textContent = "WebGL 初始化失败：\n" + e.message + "\n\n请更新显卡驱动或换浏览器。";
+    overlay.querySelector(".spinner").style.display = "none";
+    overlay.querySelector(".title").textContent = "无法启动 3D 渲染";
+    logFrontend("WebGL 初始化失败: " + e.message, "ERROR");
+    throw e;
+  }
+}
+function onResize(){
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+/* ---------- 相机轨道：根据 camOrbit 计算相机位置并 lookAt 目标 ---------- */
+function updateCamera(simTime){
+  const target = camOrbit.target;
+  const sinPhi = Math.sin(camOrbit.phi), cosPhi = Math.cos(camOrbit.phi);
+  const offX = camOrbit.dist * sinPhi * Math.sin(camOrbit.theta);
+  const offY = camOrbit.dist * cosPhi;
+  const offZ = camOrbit.dist * sinPhi * Math.cos(camOrbit.theta);
+  const desired = new THREE.Vector3(target.x + offX, target.y + offY, target.z + offZ);
+  camera.position.lerp(desired, 0.12);
+  camera.lookAt(target);
+}
+
+/* ---------- 场景更新 ---------- */
+function updateScene(simTime){
+  const t = clock.getElapsedTime();
+  droneGroup.traverse(obj => {
+    if (obj.name==="prop") obj.rotation.y = t*obj.userData.spinSpeed + obj.userData.spinPhase;
+  });
+  if (state.rainActive){
+    if (!rainPoints.visible){
+      rainPoints.visible = true;
+      scene.fog = new THREE.Fog(0x080f10,60,300);
+      renderer.setClearColor(0x080f10);
+    }
+    updateRain();
+  } else {
+    rainPoints.visible = false;
+    scene.fog = new THREE.Fog(0x0a1410,80,460);   /* 非雨：森林绿灰薄雾 */
+    renderer.setClearColor(0x0a1410);
+  }
+  /* --- 视角逻辑 --- */
+  camOrbit.target.copy(droneGroup.position);
+  if (camOrbit.autoFollow === false && !camOrbit.dragging){
+    camOrbit.theta = camOrbit.userTheta;
+    camOrbit.phi   = camOrbit.userPhi;
+  }
+  if (camOrbit.autoFollow){
+    camOrbit.theta += (camOrbit.followTheta - camOrbit.theta) * 0.08;
+    camOrbit.phi   += (camOrbit.followPhi   - camOrbit.phi)   * 0.08;
+  }
+  updateCamera(simTime);
+  renderer.render(scene, camera);
+}
+
+/* ---------- 动画循环 ---------- */
+function animationLoop(){
+  const dt = clock.getDelta();
+  state.lastFrameDt = dt;
+  if (state.playing && !state.paused && !state.finished){
+    const frameDt = dt * state.speed;
+    state.playTime += frameDt;
+    const totalS = state.simData.total_s;
+    if (state.playTime >= totalS){ state.playTime = totalS; onFlightComplete(); }
+    updateDroneFromSimTime(state.playTime, frameDt);
+  }
+  updateScene(state.playTime);
+  requestAnimationFrame(animationLoop);
+}
+
+/* ---------- 按模拟时间更新无人机位置 ---------- */
+function updateDroneFromSimTime(simTime, frameDt){
+  if (!state.simData) return;
+  const posSeq = state.simData.position_seq;
+  if (posSeq.length===0) return;
+  const step = 0.5;
+  let idx = Math.floor(simTime/step);
+  if (idx>=posSeq.length) idx = posSeq.length-1;
+  const p1 = posSeq[idx], p2 = posSeq[Math.min(idx+1,posSeq.length-1)];
+  const frac = Math.max(0, Math.min(1, (simTime-p1.t)/step));
+  const home = state.simData.home;
+  /* 电量百分比（按模拟时间线性消耗，物理合理） */
+  const battPct = Math.round(p1.battery_pct*(1-frac)+p2.battery_pct*frac);
+  /* rain 状态在本帧先算好（驱动 AI 决策；state.rainActive 下方同步） */
+  const raining = p1.raining || p2.raining;
+
+  /* ---------- AI 飞行控制器：速度由算法算出（航点跟踪 + 避障 + 雨遮蔽 + 硬件直线返航 + 高度） ---------- */
+  /* 本次飞行航线（开放环，长度随巡航时间变）+ 硬件类事件直线返航 */
+  _activeRoute = state.simData.route || null;
+  _rtbActive = !!(p1.rtb || p2.rtb);
+  const dtSim = Math.max(0.001, frameDt);   // 播放倍率只改时间快慢，不改变速度物理量 m/s
+  const vel = _droneController(lastDronePos.x, lastDronePos.z, lastDronePos.y, raining);
+  /* 位置 = 上一帧 + 速度*模拟dt（积分，体现 AI 掌控速度） */
+  lastDronePos.x += vel.x * dtSim;
+  lastDronePos.z += vel.z * dtSim;
+  lastDronePos.y += vel.y * dtSim;
+  /* 边界防护：限制在地图半径内（~800m），防飞出场景 */
+  const rMax = TREE_CONFIG.forestGroundSize*0.5*0.8;
+  const rr = Math.sqrt(lastDronePos.x*lastDronePos.x + lastDronePos.z*lastDronePos.z);
+  if (rr > rMax){ lastDronePos.x *= rMax/rr; lastDronePos.z *= rMax/rr; }
+  /* 高度防护：绝不低于 hardFloor，不超过 60m */
+  lastDronePos.y = Math.max(DRONE_PHYS.hardFloor, Math.min(60, lastDronePos.y));
+  droneGroup.position.copy(lastDronePos);
+  const displayAlt = droneGroup.position.y;
+  const dec = _droneDecision(droneGroup.position.x, droneGroup.position.z, raining);   // HUD 显示用
+
+  trailPointCounter += frameDt;
+  if (trailPointCounter>=1.0){ trailPointCounter=0; addTrailPoint(droneGroup.position); }
+
+  const totalSec = Math.floor(simTime);
+  const hh = String(Math.floor(totalSec/3600)+8).padStart(2,"0");
+  const mm = String(Math.floor((totalSec%3600)/60)).padStart(2,"0");
+  const ss = String(totalSec%60).padStart(2,"0");
+  hudTime.textContent = `\u23F1 ${hh}:${mm}:${ss}`;
+  const hlat = home.lat + droneGroup.position.x/100, hlon = home.lon + droneGroup.position.z/100;
+  hudLatlon.textContent = `\uD83D\uDCCD ${hlat.toFixed(4)}, ${hlon.toFixed(4)}`;
+  hudAlt.textContent = `\u2B06 ${displayAlt.toFixed(1)}m`;
+  hudBattery.textContent = `\uD83D\uDD8B ${battPct}%`;
+  state.rainActive = p1.raining || p2.raining;
+  /* 展示当前事件类别的“应对方法”（机载 AI 判断 + 动作说明） */
+  const activeEvents = state.simData.events.filter(ev =>
+    simTime>=ev.start_s && simTime<ev.start_s+ev.dur_s);
+  if (_rtbActive){
+    const hw = activeEvents.find(e=>e.rtb);
+    hudEvent.textContent = "🏠 " + (hw?hw.name_cn:"硬件异常") + " · " + (hw?hw.resp.action:"直线返航原点");
+  } else if (state.rainActive){
+    hudEvent.textContent = "🌧 下雨中 · " + RESPONSE.rain.action + (dec.repelX||dec.repelZ ? " · 避障" : "");
+  } else if (activeEvents.length>0){
+    const e = activeEvents[0];
+    hudEvent.textContent = "⚠ " + e.name_cn + " · " + e.resp.action;
+  } else {
+    hudEvent.textContent = (dec.repelX||dec.repelZ) ? "🌲 " + RESPONSE.obstacle.action : "";
+  }
+
+  const tick = getNearestTick(simTime);
+  if (tick){
+    const modeClass = "mode-"+tick.mode.toLowerCase();
+    hudMode.textContent = `模式: ${tick.mode_cn} | ${tick.anomaly_cn}`;
+    hudMode.className = `hud-row ${modeClass}`;
+  } else {
+    hudMode.textContent = "模式: 巡航"; hudMode.className = "hud-row mode-cruise";
+  }
+
+  const totalS = state.simData.total_s;
+  timelineFill.style.width = (simTime/totalS*100).toFixed(1)+"%";
+  timelineLabel.textContent = `${formatSimTime(simTime)} / ${formatSimTime(totalS)}`;
+}
+function getNearestTick(simTime){
+  const ticks = state.simData.ticks;
+  if (!ticks || ticks.length===0) return null;
+  const OFFSET = 8*3600;
+  let lo=0, hi=ticks.length-1, best=null;
+  while (lo<=hi){
+    const mid=(lo+hi)>>1;
+    if (ticks[mid].ts-OFFSET <= simTime){ best=ticks[mid]; lo=mid+1; } else hi=mid-1;
+  }
+  return best;
+}
+function formatSimTime(seconds){
+  const totalSec = Math.floor(seconds);
+  const mm = String(Math.floor(totalSec/60)).padStart(2,"0");
+  const ss = String(totalSec%60).padStart(2,"0");
+  return `${mm}:${ss}`;
+}
+
+/* ---------- AI 自检：物理规律 + AI 程序作用验证（启动时跑一次） ---------- */
+function _runAISelfCheck(){
+  const problems = [];
+  const checks = [];
+  const TCFG = TREE_CONFIG;
+  const tMin = TCFG.treeHeights[0], tMax = TCFG.treeHeights[1];
+  const canopyTopMax = tMax * 0.95;   // 冠层顶约 0.95*h（树干0.45h+冠0.55h）
+
+  /* 1) 物理规律：高度 vs 树高 */
+  const clearOk = DRONE_PHYS.cruiseAlt > canopyTopMax;
+  checks.push({ name:"巡航高度高于林冠", ok:clearOk, detail:`cruiseAlt=${DRONE_PHYS.cruiseAlt}m > 冠顶${canopyTopMax.toFixed(1)}m` });
+  if(!clearOk) problems.push("巡航高度未高于最高林冠，会穿模");
+  const shelterOk = DRONE_PHYS.rainShelterAlt < tMin; // 雨遮蔽高度低于最矮树高=钻到树下
+  checks.push({ name:"雨遮蔽高度低于最矮树（钻树冠下）", ok:shelterOk, detail:`rainAlt=${DRONE_PHYS.rainShelterAlt}m < 最矮树${tMin}m` });
+  if(!shelterOk) problems.push("雨遮蔽高度高于最矮树，无法钻到树冠下避雨");
+  const floorOk = DRONE_PHYS.hardFloor >= 3 && DRONE_PHYS.hardFloor < DRONE_PHYS.rainShelterAlt;
+  checks.push({ name:"离地安全下限合理", ok:floorOk, detail:`hardFloor=${DRONE_PHYS.hardFloor}m` });
+  if(!floorOk) problems.push("离地下限不合理");
+
+  const spacingOk = true; // 簇内间距 1.5~2.2m（密集林），corridor 40x160 预留（已在生成时避开）
+  checks.push({ name:"树木间距/航线走廊已预留", ok:spacingOk, detail:"簇内 1.5~2.2m + home/走廊 40x160 清空" });
+
+  /* 3) AI 程序作用：空间网格可用 + 决策函数有输出 */
+  const gridOk = !!treeSpatialGrid && treeSpatialGrid.map.size > 0;
+  checks.push({ name:"树木空间网格已建（避障/遮蔽查询）", ok:gridOk, detail:gridOk?`cell=8m, ${treeSpatialGrid.map.size} 格`:"网格为空" });
+  if(!gridOk) problems.push("树木空间网格未建立，避障/遮蔽无法查询");
+  const dec = _droneDecision(0, 0, false);
+  const decOk = isFinite(dec.altTarget) && dec.altTarget === DRONE_PHYS.cruiseAlt;
+  checks.push({ name:"AI 决策函数（非雨→巡航高度）", ok:decOk, detail:`altTarget=${dec.altTarget}` });
+  const decRain = _droneDecision(0, 0, true);
+  const decRainOk = decRain.altTarget === DRONE_PHYS.rainShelterAlt && decRain.shelterX !== null;
+  checks.push({ name:"AI 决策函数（雨→雨遮蔽高度+遮蔽点）", ok:decRainOk, detail:`altTarget=${decRain.altTarget} 遮蔽点=${decRain.shelterX!=null}` });
+
+  /* 4) 物理规律：相机远裁剪 > 地图半径（远圈不穿模被裁） */
+  const farOk = camera && camera.far > TCFG.farRings[TCFG.farRings.length-1].dist;
+  checks.push({ name:"相机远裁剪 > 最远圈距离", ok:farOk, detail:`far=${camera?camera.far:"?"}m > ${TCFG.farRings[TCFG.farRings.length-1].dist}m` });
+  if(!farOk) problems.push("相机远裁剪小于最远圈距离，远景树林会被裁剪看不见");
+
+  for (const c of checks){
+    logFrontend(`[AI自检] ${c.ok?"✓":"✗"} ${c.name} — ${c.detail}`, c.ok?"INFO":"WARN");
+  }
+  logFrontend(`[AI自检] 共 ${checks.length} 项，通过 ${checks.filter(c=>c.ok).length} 项，问题 ${problems.length} 项${problems.length?"："+problems.join("；"):""}`, problems.length?"WARN":"INFO");
+  return { checks, problems };
+}
+
+/* ---------- 飞行完成 ---------- */
+function onFlightComplete(){
+  state.finished=true; state.playing=false;
+  btnBack.classList.remove("hidden");
+  finishBadge.classList.remove("hidden");
+  hudEvent.textContent="✅ 任务完成 | 安全降落";
+  hudMode.textContent="模式: 降落"; hudMode.className="hud-row mode-mission";
+  logFrontend("飞行模拟完成: total_s="+state.simData.total_s);
+}
+
+/* ---------- 开始（离线：每次开始按种子重新生成事件，不同种子不同事件）---------- */
+function startSim(){
+  const minutes = parseInt(inputMinutes.value,10) || 8;
+  const seedStr = inputSeed.value.trim();
+  let seed;
+  if (seedStr !== ""){
+    seed = parseInt(seedStr,10); if (isNaN(seed)) seed = Date.now() & 0x7fffffff;
+  } else {
+    seed = Date.now() & 0x7fffffff;   // 留空 = 每次不同
+  }
+  menuStatus.textContent = "离线模式 · 种子 " + seed + "（事件随机生成）";
+  logFrontend(`开始演示 minutes=${minutes} seed=${seed}`);
+  state.simData = generateSimData(seed);   // 每次开始重新生成（不同种子 -> 不同事件）
+  showFlightScreen();
+}
+function showFlightScreen(){
+  menuScreen.classList.add("hidden");
+  flightScreen.classList.remove("hidden");
+  state.playTime=0; state.playing=true; state.paused=false;
+  state.finished=false; state.rainActive=false; trailPointCounter=0;
+  _wpIndex = 0; _droneVel.x = _droneVel.z = _droneVel.y = 0; _rtbActive = false;   // 重置 AI 飞行控制器状态（航点+速度+返航）
+  lastDronePos.set(0,15,0);
+  droneGroup.position.copy(lastDronePos);
+  buildTrail(); rainPoints.visible=false;
+  // 重置相机到初始跟随角 + 默认距离
+  camOrbit.autoFollow = true;
+  camOrbit.theta = camOrbit.followTheta;
+  camOrbit.phi   = camOrbit.followPhi;
+  camOrbit.dist  = FOLLOW_DIST;
+  camOrbit.target.copy(droneGroup.position);
+  camOrbit.userTheta = camOrbit.followTheta;
+  camOrbit.userPhi   = camOrbit.followPhi;
+  camOrbit.dragging  = false;
+  btnBack.classList.add("hidden"); finishBadge.classList.add("hidden");
+  btnPause.textContent="⏸ 暂停"; setSpeed(1);
+  clock.getDelta();
+  if (!state._loopStarted){ state._loopStarted=true; requestAnimationFrame(animationLoop); }
+  logFrontend("开始播放动画: total_s="+state.simData.total_s);
+}
+function showMenuScreen(){
+  state.playing=false;
+  flightScreen.classList.add("hidden");
+  menuScreen.classList.remove("hidden");
+  btnStart.disabled=false; menuStatus.textContent="";
+  logFrontend("返回菜单界面");
+}
+
+/* ---------- 事件绑定 ---------- */
+btnStart.addEventListener("click", startSim);
+btnBack.addEventListener("click", showMenuScreen);
+btnPause.addEventListener("click", ()=>{
+  state.paused=!state.paused;
+  btnPause.textContent = state.paused ? "▶ 继续" : "⏸ 暂停";
+  if (!state.paused) clock.getDelta();
+});
+function setSpeed(mult){
+  state.speed=mult;
+  btnSpeed1.classList.toggle("active", mult===1);
+  btnSpeed4.classList.toggle("active", mult===4);
+  btnSpeed8.classList.toggle("active", mult===8);
+}
+btnSpeed1.addEventListener("click", ()=>setSpeed(1));
+btnSpeed4.addEventListener("click", ()=>setSpeed(4));
+btnSpeed8.addEventListener("click", ()=>setSpeed(8));
+
+/* ---------- 相机交互：长按拖动转移视角 + 滚轮缩放 ---------- */
+// 按住鼠标左键拖动 = 自由视角（手动模式，保持用户角度）
+// 松开 = 回到自动跟随模式（平滑过渡）
+// 滚轮 = 缩放相机距离（10~120）
+canvas.addEventListener("mousedown", (e) => {
+  if (e.button !== 0) return;
+  camOrbit.dragging = true;
+  camOrbit.lastX = e.clientX;
+  camOrbit.lastY = e.clientY;
+  camOrbit.autoFollow = false;
+  camOrbit.userTheta = camOrbit.theta;
+  camOrbit.userPhi   = camOrbit.phi;
+  if (hudCamHint) hudCamHint.innerHTML = "🎥 <span style='color:#ffaa44'>手动视角</span> · 松开锁定当前角度<br>🖲 滚轮=缩放";
+  logFrontend("进入手动视角（长按拖动中）");
+});
+canvas.addEventListener("mousemove", (e) => {
+  if (!camOrbit.dragging) return;
+  const dx = e.clientX - camOrbit.lastX;
+  const dy = e.clientY - camOrbit.lastY;
+  camOrbit.lastX = e.clientX;
+  camOrbit.lastY = e.clientY;
+  // 水平拖动 -> 方位角 theta；垂直拖动 -> 俯仰角 phi
+  camOrbit.userTheta -= dx * 0.006;
+  camOrbit.userPhi   += dy * 0.006;
+  camOrbit.userPhi   = clamp(camOrbit.userPhi, 0.05, Math.PI - 0.15);
+  camOrbit.theta = camOrbit.userTheta;
+  camOrbit.phi   = camOrbit.userPhi;
+});
+window.addEventListener("mouseup", () => {
+  if (camOrbit.dragging){
+    camOrbit.dragging = false;
+    // 松开后保持当前视角不动（不拉回跟随模式）
+    // autoFollow 保持 false，theta/phi 保持用户拖动到的角度
+    if (hudCamHint) hudCamHint.innerHTML = "🎥 <span style='color:#ffaa44'>自由视角已锁定</span><br>🖱 再次拖动可调整 · 🖲 滚轮=缩放";
+    logFrontend("松开，保持当前视角（" + 
+      "θ=" + camOrbit.theta.toFixed(2) + ", φ=" + camOrbit.phi.toFixed(2) + "）");
+  }
+});
+canvas.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  camOrbit.dist += e.deltaY * 0.03;
+  camOrbit.dist = clamp(camOrbit.dist, 10, 200);
+  logFrontend("缩放 dist=" + camOrbit.dist.toFixed(1));
+}, { passive: false });
+
+/* ---------- 启动 ---------- */
+if (typeof THREE === "undefined"){
+  // CDN 失败：明确提示而非黑屏
+  overlayMsg.textContent =
+    "Three.js 库未能加载（可能断网）。\n" +
+    "离线演示需要一次网络下载 3D 引擎。\n" +
+    "请联网后刷新，或改用带后端的完整版 index.html。";
+  overlay.querySelector(".spinner").style.display="none";
+  overlay.querySelector(".title").textContent="无法加载 3D 引擎";
+  logFrontend("THREE 未定义（CDN 加载失败）","ERROR");
+} else {
+  initThree();
+  logFrontend("Frontend loaded, Three.js ready (offline demo)");
+}
+</script>
+</body>
+</html>

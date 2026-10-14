@@ -1,0 +1,32 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# ---- 虚拟环境 ----
+.venv/
+venv/
+env/
+
+# ---- 运行时日志与缓存 ----
+logs/
+*.log
+
+# ---- PyInstaller / 打包产物 ----
+*.spec.bak
+__pycache__/
+
+# ---- 爬虫原始数据（如需上传，删除下面两行） ----
+# data/raw/
+# 123/drone_crawler/data/raw/
+
+# ---- 编辑器与系统 ----
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+desktop.ini

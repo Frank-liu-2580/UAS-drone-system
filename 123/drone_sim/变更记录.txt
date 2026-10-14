@@ -1,0 +1,208 @@
+> 【2026-10-14 搬迁说明】项目已从历史盘符 D:\123 / D:\12 搬迁至当前工作目录。
+> 本文件中出现的 D:\123、D:\12\、D:S\ 等旧绝对路径仅作历史记录保留，不再作为运行依据；
+> 当前目录结构与运行方式见《修复任务单.md》§0.0 路径基线（项目根 / 相对路径）。
+> 正文逐行不动，以保持日志原始性。
+无人机飞行模拟 · 底层改动记录
+================================
+项目：D:\12\123\drone_sim + drone_ai
+日期：2026-10-13
+功能：无人机自身事件触发后立即就近迫降 + 终止任务（后续事件不再处理）
+
+--------------------------------
+一、改动概述
+--------------------------------
+当注入或检测到的异常属于"无人机自身事件"时，AI 主程序立即强制：
+  1. 水平速度收敛（dx/dy = 0，稳着落，不冲 home）
+  2. 强垂直下降（dz = RTB_DESCENT_MPS × 1.5 = 3.0 m/s）
+  3. 偏航收敛（dvyaw = 0）
+  4. 油门收敛（throttle_delta = -0.3，防动力故障拉高油门恶化）
+  5. 清除 RTB / 模式动作残留字段（避免误导）
+  6. 标记 task_aborted = True + task_abort_reason = atype + task_abort_ts
+
+模拟器（simulate.py）两个主循环在 self._ai.task_aborted 为 True 时：
+  - 记 [CRIT] 行"任务终止 | 自身事件[xx] 立即就近迫降 | 后续事件不再处理"
+  - 立即 break 跳出 while 循环（不再处理后续事件）
+  - 循环尾记 [CRIT] 行"飞行提前终止 | 自身事件[xx] 迫降 | 已处理事件 N/M | 任务未正常完成"
+  - 若未终止，原样记 [OK] 行"任务完成 | 安全降落"
+
+--------------------------------
+二、修改文件
+--------------------------------
+1. D:\12\123\drone_ai\ai_main.py
+   - DroneAI.__init__：新增 task_aborted / task_abort_reason / task_abort_ts 三项
+   - DroneAI.start()：每次新任务重置上述三项为 False/None/None
+   - DroneAI.tick()：第 5.5) 段（_build_command 之后、smoother 之前）
+       if not self.task_aborted and atype in self.SELF_FAULT_TYPES:
+           self._force_land_abort(cmd, metrics, atype, now_ms)
+   - 新增 DroneAI._force_land_abort(cmd, metrics, atype, now_ms) 方法
+     （水平收敛 + 强下降 + 油门收敛 + 清残留 + 置 task_aborted）
+
+2. D:\12\123\drone_sim\simulate.py
+   - FlightSimulator.__init__：新增 self._task_terminated=False
+       self._task_terminate_ts=None（模拟秒，供结尾日志用）
+   - run()（xlsx 路径）：
+       while ts <= self.total_s:
+           ...
+           if self._ai.task_aborted:
+               self._log(ts, "CRIT", "任务终止 | 自身事件[...] 立即就近迫降 | 后续事件不再处理")
+               self._task_terminated = True
+               self._task_terminate_ts = ts
+               break
+           ...
+       # 循环尾
+       if self._task_terminated:
+           self._log(self._task_terminate_ts, "CRIT", "飞行提前终止 | ... 任务未正常完成")
+       else:
+           self._log(self.total_s, "OK", "任务完成 | 安全降落")
+   - run_stdout()（bat 窗口路径）：同上逻辑，两处 break + 结尾日志
+   - 新增 self._task_terminate_ts 记录模拟秒（0 起算），避免把墙钟 now_ms 传给 _log()
+     导致 datetime.fromtimestamp(0)+timedelta(seconds=1.7e12) 溢出
+
+--------------------------------
+三、自身事件白名单（DroneAI.SELF_FAULT_TYPES）
+--------------------------------
+内部机体/动力/飞控/电池/电调/桨/云台/载荷故障（7 类）：
+  - motor_failure  电机失效
+  - flight_ctrl    飞控死机/复位
+  - battery_issue  电池过低/过温
+  - prop_break     桨叶断裂
+  - esc_fault      电调过热
+  - gimbal_fault   云台故障
+  - payload_fault  载荷故障
+
+注意：电池电压随飞行时间线性下降是模拟器的正常行为，本逻辑不区分
+"自然耗尽"和"电池故障"——只要 atype 命中 battery_issue 即触发终止。
+外部因素（雨/风/GPS/障碍/鸟/链路/打雷）仍走原有 RTB 返航流程，不终止任务。
+
+--------------------------------
+四、验证结果
+--------------------------------
+单元级验证：
+  - motor_failure（esc_current=0）注入 -> task_aborted=True, reason=motor_failure,
+    cmd 含 dz=1.5（实际 3.0×smoother 平滑）、throttle_delta=-0.3、
+    force_land=self_fault_force_land、无 rtb 残留
+  - 正常巡航 -> task_aborted=False
+
+端到端（--minutes 6 --stdout）：
+  - 种子42：prop_break 于 08:01:27 触发 -> CRIT 终止 + 后续事件不再处理
+    输出："飞行提前终止 | 自身事件[prop_break] 迫降 | 已处理事件 0/10 | 任务未正常完成"
+  - 种子11：esc_fault 于 08:04:55 触发 -> 同样终止，已处理事件 3/8
+
+xlsx 路径（--out）：
+  - 正确输出"飞行提前终止 @ 1m27s | 自身事件[prop_break] 迫降 | 任务未正常完成"
+
+底层自检：
+  - python D:\12\123\drone_ai\ai_main.py -> 8 场景演示全部 OK
+  - 两个核心文件 ast.parse 语法通过
+
+--------------------------------
+五、清理
+--------------------------------
+- 临时补丁脚本已删除：
+    D:\12\123\drone_ai\_patch_self_fault.py
+    D:\12\123\drone_sim\_patch_task_abort.py
+    D:\12\123\drone_sim\_patch_stdout_abort.py
+    D:\12\123\drone_sim\_patch_abort_ts.py
+- 所有改动已内联到 ai_main.py / simulate.py 源码，无遗留临时文件
+
+--------------------------------
+六、同步更新 AI 算法（决策层原生识别，2026-10-13 补充）
+--------------------------------
+用户要求"同步更新ai算法"：把"自身事件 -> 立即迫降终止"从仅模拟层的事后检查，
+下沉到 drone_ai/decision.py 决策算法层，使 AI 本体原生产生终止模式，不再依赖
+simulate.py 检查 task_aborted 才终止。
+
+改动文件（本次新增）：
+1. D:\12\123\drone_ai\decision.py
+   - 新增 SELF_ABORT_TYPES（7 类自身事件白名单，单一来源）
+   - 新增 is_self_fault(anomaly) 判定函数
+   - combined_mode()：开头"自身事件一票否决"——命中任一自身事件直接返回
+     新模式 FORCE_LAND（不再走常规 P/T 的 PROTECT/RTB/MISSION/CRUISE）
+   - ModeSelector.pick_mode()：自身事件 -> FORCE_LAND
+   - ModeSelector.action_for()：FORCE_LAND 模式/自身事件 -> 动作"立即就近迫降并终止任务"
+   - should_rtb()：自身事件改判 False（不返航 home，就近迫降终止）
+
+2. D:\12\123\drone_ai\ai_main.py
+   - DroneAI.SELF_FAULT_TYPES 改为引用 decision.SELF_ABORT_TYPES（消除双份维护）
+   - tick() 第 5.5) 段：mode==FORCE_LAND 或 atype 命中白名单（双保险）即触发
+     _force_land_abort；触发后 mode 统一回写为 FORCE_LAND
+   - _force_land_abort：新增 cmd["mode"]="FORCE_LAND" 写回（覆盖 _build_command 先前值）
+   - smoother 快速模式纳入 FORCE_LAND（终止要快）
+
+验证（本次）：
+  单元级：prop_break 注入 -> cmd.mode=FORCE_LAND, task_aborted=True,
+          force_land=self_fault_force_land；
+          rain 注入 -> mode=RTB, task_aborted=False（外部因素不终止，行为不变）
+  端到端 seed=42：报告头指纹出现 FORCE_LAND 模式项，08:01:27 CRIT 终止
+  端到端 seed=23（未命中自身事件）：正常 [OK] 任务完成，无 FORCE_LAND
+  ai_main.py 自检 8 场景仍全 OK，无回归
+
+文档：
+  - 使用说明.md 第八节补充"决策层同步"小节 + 白名单同源说明 + FORCE_LAND 指纹提示
+  - 本变更记录新增第六节
+
+--------------------------------
+七、路线判断/避障/行为动作 全部用 drone_ai 算法（闭环，2026-10-13）
+--------------------------------
+用户要求"无人机的路线判断、避障、还有行为动作的选定用 drone_ai 中的算法"。
+此前模拟器的位置是写死的 ts*0.01 线性漂移、障碍方位角是随机注入的，
+只有"行为动作选定（模式/动作）"走了 drone_ai 决策层。本次把三件事全部
+下沉到 drone_ai 算法并改造成闭环（无人机真的按 AI 指令飞）：
+
+  1) 路线判断（route）：新增 drone_ai/route.py
+     - RoutePlanner：多 waypoint 航线，next_waypoint() 判断"接下来该飞向哪个点"
+       （路线判断 = 选下一航点；default_waypoints() 给 4 点矩形巡检航线）
+     - route_velocity()：航线速度向量（NED m/s），交给巡航闭环积分
+     - obstacle_bearing()：把"障碍在哪"算成相对机头朝向的方位角（deg）
+     接入：ai_main.DroneAI 新增 route_waypoints/home 构造参数；
+       _build_command 巡航段优先走 route_planner（多航点）> cruise_target（单点）；
+       cmd 新增 route_wp / route_return / route_event 字段。
+
+  2) 避障（obstacle）：几何方位角，不再随机注入
+     - serial_io.CHANNELS[uart4] 新增 obstacle_pos（NED [x,y,z]）metric；DEFAULTS=None
+     - ai_main._build_command：当 obstacle_bearing_deg=None 但提供了
+       obstacle_pos，用 route.obstacle_bearing(当前 pos, 机头 yaw, obstacle_pos)
+       算出方位角 + 距离，再交给 obstacle.avoid_obstacle（转向/绕行/急停）；
+       避障产生的 dvyaw 回写 self.yaw（机头朝向闭环）
+     - simulate.py：obstacle 事件不再随机选 bearing，改为把障碍物放到无人机
+       机头前方（按当前 yaw 算 NED 位置）注入 obstacle_pos，bearing 置 None
+       交给几何算；避障转向 dvyaw 积分回 self._yaw
+
+  3) 行为动作选定（decision）：保持用 drone_ai.decision（combined_mode + action_for）
+     - 模拟器两个主循环改为"闭环积分"：用 AI 返回的 dx/dy/dz/dvyaw 更新
+       self._pos / self._yaw（NED：x 北, y 东, z 下为正；dvyaw deg/s）；
+       把 self._pos/self._yaw 反馈给下一 tick 的 metric（替代旧 ts*0.01 漂移）
+     - 这样"往哪飞（路线）+ 怎么避（避障）+ 选什么行为（PROTECT/MISSION/
+       RTB/FORCE_LAND）"三件事全部由 drone_ai 算法驱动，模拟器只做积分 + 记录
+
+改动文件（本次新增/修改）：
+1. D:\12\123\drone_ai\route.py            （新增）
+2. D:\12\123\drone_ai\ai_main.py
+   - import route as route_mod
+   - __init__ 新增 route_waypoints/home 参数 + self.route_planner/self.yaw
+   - start(home, yaw) 同步航线 home + 机头朝向
+   - _build_command 巡航段优先 route_planner；避障段几何算 bearing + yaw 闭环
+3. D:\12\123\drone_ai\serial_io.py
+   - CHANNELS[uart4].metrics 加 obstacle_pos；DEFAULTS.obstacle_pos=None
+4. D:\12\123\drone_sim\simulate.py
+   - __init__ 新增闭环状态 self._pos/self._yaw/self._home/self._waypoints/
+     self._obstacle_pos(/_active)/self._log_route_done；新增 _init_route()
+   - run()/run_stdout()：DroneAI 构造带 route_waypoints；主循环改闭环积分
+     （pos/yaw 由 AI 指令驱动 + 反馈）；obstacle 事件用几何 obstacle_pos；
+     航线完成记一行 [OK] "航线完成 | 已飞完 N 个 waypoint，返航 home"
+5. D:\12\123\drone_ai\__init__.py        目录结构注释加 route.py 行
+
+验证（本次）：
+  - ai_main.py 自检 8 场景全 OK（避障场景 turn/evasive/hold 正确按方位角出）
+  - 模拟 --minutes 5 --seed 42：t=38s "航线完成 | 已飞完 4 个 waypoint，返航 home"
+    （路线判断生效）；t=53s obstacle -> evasive dvyaw=-30（几何避障生效）；
+    t=58s prop_break -> FORCE_LAND 终止（行为动作选定生效）
+  - 模拟 --minutes 12 --seed 7：航线完成 + obstacle turn dvyaw=15 + RTB(wind/gps)
+    + esc_fault FORCE_LAND 终止，指纹 DIFF（结果真变）
+  - xlsx 路径 --out 正常生成 sim_output.xlsx（seed=11 触发 battery_issue 自身体型终止）
+  - 三个核心文件（route.py / ai_main.py / simulate.py）ast.parse 语法通过
+  - 临时补丁脚本已清理，无遗留 _*.py
+
+文档：
+  - 使用说明.md 第九节目录结构补 route.py
+  - 本变更记录新增第七节

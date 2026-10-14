@@ -1,0 +1,240 @@
+/* ===== 基础重置 ===== */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  background: #0a0e1a;
+  color: #e0e8ff;
+  overflow: hidden;
+  height: 100vh;
+}
+
+.screen { position: fixed; inset: 0; }
+.hidden { display: none !important; }
+
+/* ===== 菜单界面 ===== */
+#menu-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(ellipse at 50% 30%, #1a2540 0%, #0a0e1a 70%);
+  z-index: 10;
+}
+
+.menu-panel {
+  width: 440px;
+  background: rgba(15, 20, 40, 0.95);
+  border: 1px solid rgba(80, 140, 255, 0.25);
+  border-radius: 16px;
+  padding: 40px 36px;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+}
+
+.menu-title {
+  font-size: 28px;
+  font-weight: 700;
+  color: #7ab8ff;
+  margin-bottom: 8px;
+}
+.drone-icon {
+  display: inline-block;
+  animation: float 3s ease-in-out infinite;
+  margin-right: 8px;
+}
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+.menu-subtitle {
+  font-size: 13px;
+  color: #6688aa;
+  margin-bottom: 32px;
+}
+
+.menu-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 28px;
+  text-align: left;
+}
+.menu-form label {
+  font-size: 13px;
+  color: #88aacc;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.menu-form input {
+  background: rgba(20, 30, 55, 0.9);
+  border: 1px solid rgba(80, 140, 255, 0.3);
+  border-radius: 8px;
+  padding: 10px 14px;
+  color: #e0e8ff;
+  font-size: 15px;
+  outline: none;
+  transition: border 0.2s;
+}
+.menu-form input:focus {
+  border-color: #4a90e2;
+  box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.2);
+}
+
+.btn-primary {
+  width: 100%;
+  background: linear-gradient(135deg, #2a6df5 0%, #4a90e2 100%);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  padding: 14px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  letter-spacing: 0.5px;
+}
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(42, 109, 245, 0.4);
+}
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.menu-status {
+  font-size: 13px;
+  color: #ff9944;
+  margin-top: 12px;
+  min-height: 18px;
+}
+
+.menu-tip {
+  margin-top: 24px;
+  font-size: 12px;
+  color: #556688;
+  line-height: 1.6;
+  border-top: 1px solid rgba(80, 140, 255, 0.15);
+  padding-top: 16px;
+}
+
+/* ===== 3D 画布 ===== */
+#flight-screen { background: #000; }
+#three-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* ===== HUD（左上角）===== */
+#hud {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  background: rgba(8, 12, 24, 0.78);
+  border: 1px solid rgba(80, 140, 255, 0.3);
+  border-radius: 10px;
+  padding: 12px 16px;
+  backdrop-filter: blur(8px);
+  z-index: 5;
+  min-width: 230px;
+}
+.hud-row {
+  font-size: 14px;
+  font-family: 'Courier New', monospace;
+  line-height: 1.7;
+  color: #aaccff;
+}
+.hud-row.event-row {
+  color: #ffaa44;
+  min-height: 18px;
+  margin-top: 4px;
+  font-size: 13px;
+}
+.mode-cruise { color: #55ff88; }
+.mode-protect { color: #ffaa44; }
+.mode-rtb { color: #ff5555; }
+.mode-mission { color: #77aaff; }
+
+/* ===== 时间轴进度条 ===== */
+#timeline-bar {
+  position: absolute;
+  bottom: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 400px;
+  max-width: 80%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+  z-index: 5;
+}
+#timeline-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #2a6df5, #55ff88);
+  border-radius: 3px;
+  transition: width 0.3s linear;
+}
+#timeline-label {
+  position: absolute;
+  bottom: 10px;
+  width: 100%;
+  text-align: center;
+  font-size: 12px;
+  color: #88aacc;
+  font-family: 'Courier New', monospace;
+}
+
+/* ===== 底部控制栏 ===== */
+#controls {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  z-index: 5;
+  background: rgba(8, 12, 24, 0.78);
+  border: 1px solid rgba(80, 140, 255, 0.25);
+  border-radius: 10px;
+  padding: 8px 14px;
+}
+.btn-small {
+  background: rgba(40, 60, 100, 0.8);
+  border: 1px solid rgba(80, 140, 255, 0.3);
+  color: #aaccff;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.btn-small:hover {
+  background: rgba(60, 90, 140, 0.9);
+  color: #fff;
+}
+.btn-small.active {
+  background: #2a6df5;
+  color: white;
+  border-color: #4a90e2;
+}
+#btn-back {
+  background: rgba(40, 160, 80, 0.9);
+  color: white;
+  border-color: rgba(80, 200, 120, 0.5);
+}
+#finish-badge {
+  font-size: 13px;
+  color: #55ff88;
+  font-weight: 600;
+}

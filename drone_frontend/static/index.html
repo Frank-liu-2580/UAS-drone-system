@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>无人机飞行模拟 · 3D 前端</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<!-- ===== 初始菜单界面 ===== -->
+<div id="menu-screen" class="screen">
+  <div class="menu-panel">
+    <div class="menu-title">
+      <span class="drone-icon">✈</span>
+      无人机飞行模拟
+    </div>
+    <div class="menu-subtitle">3D 实时动画 · 基于 drone_sim 后端</div>
+
+    <div class="menu-form">
+      <label>模拟时长（分钟）
+        <input type="number" id="input-minutes" value="8" min="1" max="30" step="1">
+      </label>
+      <label>随机种子（留空=随机）
+        <input type="number" id="input-seed" placeholder="例如 42" step="1">
+      </label>
+    </div>
+
+    <button id="btn-start" class="btn-primary">▶ 开始飞行模拟</button>
+    <div id="menu-status" class="menu-status"></div>
+
+    <div class="menu-tip">
+      动画将严格按照后端时间轴播放，下雨事件期间持续降雨，左上角显示实时定位数据。
+    </div>
+  </div>
+</div>
+
+<!-- ===== 3D 动画界面 ===== -->
+<div id="flight-screen" class="screen hidden">
+  <!-- 3D 画布 -->
+  <canvas id="three-canvas"></canvas>
+
+  <!-- 左上角 HUD -->
+  <div id="hud">
+    <div id="hud-time" class="hud-row">⏱ --:--:--</div>
+    <div id="hud-latlon" class="hud-row">📍 --</div>
+    <div id="hud-alt" class="hud-row">⬆ --m</div>
+    <div id="hud-battery" class="hud-row">🔋 --%</div>
+    <div id="hud-mode" class="hud-row mode-cruise">模式: --</div>
+    <div id="hud-event" class="hud-row event-row"></div>
+  </div>
+
+  <!-- 底部时间轴进度条 -->
+  <div id="timeline-bar">
+    <div id="timeline-fill"></div>
+    <div id="timeline-label">0s / 0s</div>
+  </div>
+
+  <!-- 底部控制栏 -->
+  <div id="controls">
+    <button id="btn-pause" class="btn-small">⏸ 暂停</button>
+    <button id="btn-speed1" class="btn-small active">1x</button>
+    <button id="btn-speed4" class="btn-small">4x</button>
+    <button id="btn-speed8" class="btn-small">8x</button>
+    <button id="btn-back" class="btn-small hidden">← 返回菜单</button>
+    <span id="finish-badge" class="hidden">✓ 任务完成</span>
+  </div>
+</div>
+
+<!-- Three.js（本地加载，断网可用；P1-2：去掉 CDN）-->
+<script src="/three.min.js"></script>
+<script src="/GLTFLoader.js"></script>   <!-- 本地 GLTFLoader（树木 GLB 加载；离线可用） -->
+<script src="/static/app.js"></script>
+
+</body>
+</html>

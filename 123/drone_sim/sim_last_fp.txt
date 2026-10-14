@@ -1,0 +1,1 @@
+events[bird×1/escfault×2/gimbalfault×1/lightning×1/linkloss×1/motorfailure×1/obstacle×1/rain×1] modes[CRUISE=33s/FORCE_LAND=0s] changes=2

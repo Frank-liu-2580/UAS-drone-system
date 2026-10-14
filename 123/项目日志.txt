@@ -1,0 +1,1327 @@
+> 【2026-10-14 搬迁说明】项目已从历史盘符 D:\123 / D:\12 搬迁至当前工作目录。
+> 本文件中出现的 D:\123、D:\12\、D:S\ 等旧绝对路径仅作历史记录保留，不再作为运行依据；
+> 当前目录结构与运行方式见《修复任务单.md》§0.0 路径基线（项目根 / 相对路径）。
+> 正文逐行不动，以保持日志原始性。
+============================================
+无人机影子 AI 决策系统 · 数据准备阶段 日志
+============================================
+日期：2026-10-12 ~ 2026-10-13
+工作目录：D:\123\drone_crawler
+说明：本阶段只做"爬视频 → 分类整理 → 存 xlsx 数据库"，不涉及 AI 决策。
+     一~五节为 10-12 初始规划与数据成果；
+     六节起为 10-13 的评分/机载/模拟落地记录（每节标题带日期）。
+
+============================================
+一、项目目标回顾
+============================================
+给无人机部署智能 AI（影子 AI），应对各种意外状况，支持前端可选
+模式（保护无人机 / 任务优先 等）。训练数据来源为全网视频案例
+（B 站、YouTube 及各国主流视频站），通过观察"当时发生了什么 +
+应对方案"来建立 异常事件库 + 决策策略库。奖励/惩罚机制随模式
+变化（任务模式下"避雨/继续任务"得分高，保护模式下"立即返航"
+得分高）。
+
+============================================
+二、已完成的成果
+============================================
+
+1. 爬虫框架（可一键运行）
+   位置：D:\123\drone_crawler
+   - multi_site_crawler.py  多站爬虫：B 站(官方API)+YouTube(yt-dlp)
+     为主力；自动探测 20+ 国际/国内站（Dailymotion/Vimeo/TikTok/
+     Instagram/Twitch/Twitter/Rumble/Niconico/OK/Pinterest/Facebook/
+     MetaCafe/Tumblr/SoundCloud/优酷/腾讯/抖音/快手/B站直播），
+     能连通的抓，连不通的自动跳过；增量去重，可断点续抓。
+   - keywords.py  关键词库：B 站 117 个中文词 / YouTube 105 个英文词，
+     覆盖 10 大类（动力/云台/飞控/能源/通信/风/雨雾沙/温雷冰/
+     障碍生物/复盘）；抓取量 BILI_PER_KW=80 / YT_PER_KW=60。
+   - xlsx_generator.py  按视频站点分表出 xlsx，含 5 列人工标注列。
+   - start_all.bat  一键入口：装依赖→爬数据→出 drone_videos.xlsx。
+
+2. 分类整理层（纯数据，不涉及 AI）
+   位置：D:\123\drone_crawler\analyzer
+   - video_action_extractor.py  从视频标题/描述/评论提取
+     事故类别+当时环境+应对动作+结果（关键词规则，离线可跑）。
+   - video_action_db.py  按"每条视频"一行生成 Video_Action_DB.xlsx
+     （16 列：来源/类别/环境/动作/结果/评论 + 5 列人工标注）。
+   - event_builder.py  按异常类型聚合生成 Anomaly_Events.xlsx
+     （内部>自然排序，含样本量）。
+   - build_database.bat  一键入口：把原始 jsonl 整理成 3 个 xlsx。
+
+3. 当前数据成果
+   - 已爬 774 条视频（B 站 553 + YouTube 221）
+   - 已生成 3 个 xlsx 数据库：
+     · analyzer\output\Video_Action_DB.xlsx   （774 行，含人工标注列）
+     · analyzer\output\Anomaly_Events.xlsx    （16 类异常聚合）
+     · data\raw\drone_videos.xlsx             （按站点分表 + 汇总 + 标注列）
+
+4. 影子 AI 决策引擎（已写好、暂隔离在 archive_ai，待数据标注后启用）
+   位置：D:\123\drone_crawler\archive_ai
+   - decision_engine.py  读决策库+实时串口JSON→触发规则匹配异常→
+     按当前模式输出 动作+执行目标(飞控/影子AI)+Reward/Penalty。
+   - thresholds.py  阈值集中配置（电池/电机/抗风/链路/任务电量下限，
+     全标 # TODO 待按无人机实参校准）。
+   - strategy_builder.py  从异常事件库+4 种模式(CRUISE/PROTECT/
+     MISSION/RTB)生成 Decision_Strategies.xlsx，含每模式动态评分。
+   引擎已在会话中跑通演示（降雨 PROTECT=90 vs MISSION=85；
+   电机失效自动 FlightController 强制接管；多异常按严重度+内部优先）。
+
+============================================
+三、待办事项（按顺序）
+============================================
+
+阶段 1：把数据爬满并人工标注
+  1) 本地双击 start_all.bat 把 117+105 个关键词跑满
+     （理论池子约 1.6 万条，实际数千条；会话环境有 300 秒超时，
+      本地无此限制）。
+  2) 双击 build_database.bat 重新生成 3 个 xlsx。
+  3) 打开 Video_Action_DB.xlsx 人工审阅标注：
+       - 修正 accident_type 错分类
+       - 补充 actions（视频里看到的应对动作，关键词提取常漏）
+       - 确认 outcome（成功/坠毁/未知）
+       - 填 reviewer
+     标注完的数据是训练影子 AI 的核心原料。
+
+阶段 2：把标注数据喂回影子 AI
+  1) 从 archive_ai 将 decision_engine.py / thresholds.py /
+     strategy_builder.py 移回主目录启用。
+  2) 提供无人机实际参数（电池几S、电机KV/推重比、抗风等级、
+     RSSI链路范围、任务电量下限）。
+  3) 用标注数据重建 Decision_Strategies.xlsx，阈值替换为实参。
+
+阶段 3：机载影子 AI 上线
+  1) 移植 decision_engine.py 到机载平台（Jetson/树莓派等，按算力选型）。
+  2) 接串口数据流（UART1 飞控 / UART2 气象 / UART3 GNSS /
+     UART4 云台 / UART5 4G-AGH）。
+  3) 安全红线硬编码：致命故障/紧急降落/禁飞区规避直接下发飞控，
+     不走影子 AI。
+  4) 影子 AI 只做策略级决策（航线修正/悬停位置/避雨点选择），
+     经 UART5 发 AGH。
+  5) 前端 4 模式按钮（CRUISE/PROTECT/MISSION/RTB）+ 实时决策日志。
+  6) 云端 AI 通道保留做复盘（延迟高时本地影子 AI 兜底）。
+
+============================================
+四、遗留待确认问题
+============================================
+  1. 数据量：现在 774 条够不够？是否继续扩关键词/加站点？
+  2. 标注人力：谁来标、多少条必须 100% 标完？
+     （建议至少先把 B 站 553 条中非 unknown 的约 300 条标完）
+  3. 无人机实参：电池几S/电机KV/推重比/抗风等级/RSSI范围/
+     任务续航 —— 发出来才能精确化 thresholds.py。
+  4. 影子 AI 算力平台：机载是 Jetson Orin / 树莓派 4 / 还是
+     STM32 跑轻量规则？
+  5. 前端模式：4 个(CRUISE/PROTECT/MISSION/RTB)够不够？
+     是否要加"悬停等待"或"避雨点选择"独立模式？
+
+============================================
+五、使用速查
+============================================
+  爬数据：双击 start_all.bat
+  出数据库：双击 build_database.bat
+  两个可并行/重复运行（增量去重，不重复）
+  清空重来：删除 data\raw\multi_raw.jsonl 再跑 start_all.bat
+
+============================================
+六、评分与机载串口层落地（2026-10-13）
+============================================
+说明：本节只记录已做的事，不含待办。
+
+1. 数据读取
+   - 盘点 analyzer\output\：Anomaly_Events.xlsx（16 类事件，
+     含 factor/priority/severity/样本量）、Video_Action_DB.xlsx
+     （774 条逐视频）、Decision_Strategies.xlsx（既有 4 模式策略）。
+   - 发现 unknown 占 ~45%（347/774），需先清洗。
+
+2. B 数据清洗
+   位置：D:\123\drone_crawler\analyzer\clean_unknown.py
+   产物：analyzer\output\Video_Action_DB_cleaned.xlsx
+        （新增 ext_type / noise_flag / clean_note 三列）
+        + Cleaning_Report.md
+   结果：347 条 unknown 中 60 条扩展关键词重新分类、
+        34 条判噪声（考试/教学/评测/资讯类）、
+        其余 ~253 条保留 unknown 并写入 clean_note 人工队列。
+
+3. C 事件×动作评分矩阵
+   位置：D:\123\drone_crawler\analyzer\decision_matrix.py
+   产物：analyzer\output\Decision_Matrix.xlsx
+        （Decision_Matrix + Mode_Reference 两页）
+   内容：17 类事件 × 4 模式，输出 P(保机)/T(任务) 双值(0~1)、
+        L0-L3 风险档、推荐模式、默认动作提示。
+
+4. 机载串口调用层
+   位置：D:\123\drone_crawler\serial_bridge.py
+   - 5 路 UART：uart1 飞控(MAVLink) / uart2 气象+雨滴(RS485) /
+     uart3 GNSS / uart4 云台+避障 / uart5 4G 数传→AGH。
+   - 统一规范 JSON 帧 {ts, source, channel, metric, value, unit,
+     quality, seq, raw}，AI 不直接面对裸字节。
+   - 质量层：连续 3 帧丢失→degraded，10s→lost；
+     ring buffer 本地缓存 10 分钟 + 断链补传。
+   - 兜底层 emergency_check()：低电/雨滴/大风/丢星/链路丢失
+     内置最小规则，AI 不可达仍安全；动作只给建议，
+     执行留在飞控（安全动作不走 AI）。
+   - 默认 SimulatedPort，桌面可 python serial_bridge.py 自检（已通过）。
+
+5. P/T 校准
+   位置：D:\123\drone_crawler\analyzer\calibrate_pt.py
+   产物：重生成 analyzer\output\Decision_Matrix.xlsx（校准版）
+        + Calibrate_Report.md
+   - 用 Video_Action_DB_cleaned.xlsx 的 crash/success 真实分布
+     拟合 P/T，替代纯经验值。
+   - 公式：P = 0.35·crash_rate + 0.30·severity/10
+              + 0.15·factor + 0.20·action_bias（夹在 0.05~0.95）
+           T = 1 - crash_rate
+   - 两条修正：
+     · 先验兜底：样本 <30 条时 crash_rate 不可信，
+       P 至少不低于先验基线（lightning 拉到 0.95）。
+     · 泛兜底类降权：crash_general（"炸/坠"宽命中）P 封顶 0.40，
+       避免污染保机判断。
+
+6. 最终校准版打分结果
+   事件              P    T    模式
+   lightning         0.95 0.05  PROTECT  （先验兜底）
+   motor_fault       0.78 0.05  PROTECT  （68 crash vs 2 success）
+   signal_loss       0.75 0.17  PROTECT
+   cold              0.65 0.05  PROTECT
+   wind              0.56 0.40  PROTECT
+   rain              0.56 0.25  PROTECT
+   prop_break        0.56 0.60  RTB      （success>crash，可降级完成）
+   battery           0.55 0.45  RTB      （sev=8，保机与返航平衡）
+   gimbal            0.40 0.95  MISSION
+   crash_general     0.40 0.50  CRUISE   （已降权）
+   gps               0.32 0.95  MISSION
+   obstacle          0.22 0.95  MISSION
+   bird              0.14 0.95  MISSION
+
+7. 新增/改动文件清单
+   脚本：analyzer\clean_unknown.py、analyzer\decision_matrix.py、
+        analyzer\calibrate_pt.py、serial_bridge.py
+   产物：analyzer\output\Video_Action_DB_cleaned.xlsx、
+        analyzer\output\Cleaning_Report.md、
+        analyzer\output\Decision_Matrix.xlsx、
+        analyzer\output\Calibrate_Report.md
+
+产物文件时间戳（本机时区 +08，2026-10-13）
+   Video_Action_DB_cleaned.xlsx   10:40
+   serial_bridge.py               10:45
+   Decision_Matrix.xlsx           10:51
+   Calibrate_Report.md            10:51
+
+
+============================================
+七、机载 AI 主程序落地（2026-10-13）
+============================================
+说明：本节只记录已做的事，不含待办。
+
+新建目录 D:\123\drone_ai\（机载内置 AI 主程序包）
+
+1. serial_io.py — 5 路 UART I/O 抽象
+   - 两实现：SimulatedPort（桌面/单测）与 pyserial（真实机载）
+   - 统一规范 JSON 帧 {ts, source, channel, metric, value, unit,
+     quality, seq, raw}，AI 不面对裸字节
+   - 通道定义：uart1 飞控(MAVLink) / uart2 气象+雨滴(RS485) /
+     uart3 GNSS / uart4 云台+避障 / uart5 4G->AGH
+   - 质量层：3 帧丢失 degraded / 10s lost / ring buffer 10min
+     断链补传
+
+2. thresholds.py — 数值阈值集中配置
+   - 电池/电机/抗风/通信/任务/巡航控制器 全部量集中在此
+   - 巡航控制器：定点 PID + 定速 PID + 偏航限幅 30 deg/s
+   - 换电池/电机/抗风包线只改这一个文件
+
+3. trigger.py — 传感器命中异常
+   - 复用 archive_ai 的影子 AI 规则，阈值全部来自 thresholds.py
+   - 17 条规则覆盖 motor/battery/rain/wind/gps/signal/obstacle/bird
+     /lightning/dust/cold/flight_ctrl 等
+
+4. decision.py — 模式选择器（P/T 双值）
+   - 优先读 analyzer/output/Decision_Matrix.xlsx（校准版 P/T）
+   - 文件缺失时用内置先验 P/T 兜底
+   - 判模式：P-T>0.15 -> PROTECT ; T-P>0.15 且 tier=L0/L1 -> MISSION ;
+     tier=L2/L3 -> RTB ; 否则 CRUISE
+   - 致命类（motor/prop/flight_ctrl/lightning）执行目标恒为
+     FlightController（安全动作不走 AI）
+
+5. cruise.py — 定点/定速 巡航控制器
+   - position_hold：PID 纠偏，偏离 < CRUISE_POS_HOLD_TOL_M 不动作
+   - speed_track：油门增量 [-1,1]，偏差 < CRUISE_SPEED_TOL_MPS 不动作
+   - yaw_step：偏航角限幅 30 deg/s，避免机臂甩尾
+
+6. obstacle.py — 自动避障
+   - 距离分档：>= OBSTACLE_CLOSE_M(5m) 无动作 / 3~1m 绕行 / < 1m 急停
+   - 云台朝向 gimbal_pitch 决定左右绕行
+
+7. ai_main.py — 主程序入口
+   - DroneAI 类：start() / stop() / tick() / run_demo() /
+     set_forced_mode() / safety_fallback()
+   - 数据流：5 路 UART 读 -> trigger 命中 -> decision 选模式
+     -> cruise + obstacle 叠加 -> 写回 uart1(飞控) + uart5(AGH)
+   - 前端模式按钮：set_forced_mode("PROTECT") / "MISSION" / None(自动)
+   - 兜底：safety_fallback() 内置 飞控失联/低电/雨/超风 最小规则，
+     不依赖决策库（AI 不可达仍安全）
+   - run_demo() 打印 6 个场景：正常巡航/降雨/大风/低电/障碍/强制PROTECT+雨
+
+8. README.md — 使用说明
+   - 桌面自检命令、机载接入代码、数据流图、三条底线说明
+
+自检结果（python -c "import sys; sys.path.insert(0,'drone_ai');
+import ai_main; ai_main.main()"）
+  5 路串口最新帧        正常
+  兜底判定              未触发（默认参数正常）
+  场景演示 6 项          全部通过：
+    正常巡航(CRUISE)    throttle_delta=1.0 定速
+    降雨(PROTECT)       dz=5.0 回升到避雨高度 [climb_rain_avoid]
+    大风超包线(PROTECT) dz=-3.0 降高度 [descend_wind]
+    低电量(RTB)         mode_action=rtb_low_battery
+    障碍临近(MISSION)   dvyaw=45.0 throttle=-0.3 [evasive]
+    强制PROTECT+雨      dz=5.0 [climb_rain_avoid]
+
+新增文件清单
+  D:\123\drone_ai\__init__.py
+  D:\123\drone_ai\serial_io.py
+  D:\123\drone_ai\thresholds.py
+  D:\123\drone_ai\trigger.py
+  D:\123\drone_ai\decision.py
+  D:\123\drone_ai\cruise.py
+  D:\123\drone_ai\obstacle.py
+  D:\123\drone_ai\ai_main.py
+  D:\123\drone_ai\README.md
+
+
+============================================
+八、P0 修复：speed metric 未接入 UART（2026-10-13）
+============================================
+说明：本节只记录已做的事，不含待办。
+
+用户复核发现 P0 bug：
+  `speed`（飞行速度）metric 没有接进任何一路 UART 通道。
+  serial_io.CHANNELS 全部 5 路 metrics 列表里都无 "speed"，
+  DEFAULTS 里也无 "speed"。
+
+后果链：
+  1. trigger.read_metrics_from_io() 从缓存读不到 speed
+  2. ai_main._build_command() 里 metrics.get("speed", 0.0) 永远拿到 0.0
+  3. cruise.speed_track(目标5.0, 当前0.0, dt) 算出差速 5.0
+     -> kp*5=6.0 -> 限幅后 throttle_delta=1.0（满油门）
+  4. 6 个场景里 5 个都带着 throttle_delta=1.0
+     唯独低电量场景因 battery_issue 属 fatal 被跳过巡航计算，输出 {}
+  5. 真实上机时会让定速巡航持续打满油门，属危险指令
+
+修复内容（3 处改动）：
+  a. serial_io.py CHANNELS["uart1"]["metrics"] 补上 "speed"
+     （飞控 MAVLink 的 GLOBAL_POSITION_INT 提供 vx/vy/vz，合成 speed）
+  b. serial_io.py DEFAULTS 补上 "speed": 5.0
+  c. serial_io.py SerialIO.start() 加 demo_mode 参数；
+     _pump() 在 demo_mode 下不生成默认帧（由 _inject_metrics 控制），
+     避免演示时注入值被后台 20Hz pump 线程冲掉
+
+附带修复（cosmetic）：
+  - ai_main.main() 打印"5 路最新帧"时改从 _cache 尾读
+    （demo 模式下 _latest 为空，_cache 才有注入的帧）
+  - ai_main.main() 先 _inject_metrics(DEFAULT_METRICS) 再打印
+
+自检结果（python -c "import sys; sys.path.insert(0,'drone_ai');
+import ai_main; ai_main.main()"）
+  5 路串口最新帧        正常（vib_high/visibility/sat_count/bird_detect/link_ok）
+  兜底判定              未触发
+  场景演示 6 项          全部正确：
+    正常巡航(CRUISE)    {} （无 throttle_delta，定速 5.0 已匹配）
+    降雨(PROTECT)       {'dz': 5.0} [climb_rain_avoid]
+    大风超包线(PROTECT) {'dz': -3.0} [descend_wind]
+    低电量(RTB)         {} [rtb_low_battery]
+    障碍临近(MISSION)   {'dvyaw': 45.0, 'throttle_delta': -0.3} [evasive]
+    强制PROTECT+雨      {'dz': 5.0} [climb_rain_avoid]
+  对比修复前：5 个场景都带 throttle_delta=1.0（满油门 bug），
+  修复后仅剩障碍 evasive 场景有 -0.3 减速（正确行为）。
+
+改动文件
+  D:\123\drone_ai\serial_io.py   （+speed metric, +DEFAULTS, +demo_mode）
+  D:\123\drone_ai\ai_main.py     （main() 打印改读 _cache, 注入默认值）
+
+
+============================================
+九、飞手视角 P0 修复：指令落地 + 避障方位角 + 时效闸门
+（2026-10-13）
+============================================
+说明：本节只记录已做的事，不含待办。
+
+飞手复核指出：上一版"把决策标签当飞控指令"，最该救命的动作
+（返航、绕障）一个没动作、一个瞎选边，桌面演示好看但真机摔。
+实测复现 3 个 P0 场景后逐条修复。
+
+P0-1 低电 RTB = 原地等死
+  现象：battery_v=14.0 时五指令全 0，只写字符串 mode_action
+  修复：ai_main._apply_rtb() 算往 home 点的真实水平速度向量
+       （RTB_SPEED_MPS=8）+ 末段下降率（RTB_DESCENT_MPS=2）
+       + 电量<RTB_FORCE_LAND_PCT 强制迫降；home/GPS 缺失退化为
+       就近降（绝不悬停到掉电）。起飞时 start(home=...) /
+       record_home() 记录 home 点。
+  验证：低电场景输出 {'dx':-7.4,'dy':2.97} [enroute_home]，不再全 0
+
+P0-2 避障用云台俯仰猜左右（物理无关）
+  现象：obstacle.py 用 gimbal_pitch 定 dvyaw 正负，且系统缺方位角
+  修复：serial_io uart4 加 obstacle_bearing_deg metric；
+       obstacle.py 改用 bearing 定绕向（右前->左转/左前->右转），
+       无 bearing 时只做"急停+悬停"不盲转；gimbal_pitch 移出决策
+  验证：bearing=+30 dvyaw=-30，bearing=-30 dvyaw=+30，
+       bearing=None -> hold（不同 gimbal_pitch 不再改变转向）
+
+P0-3 断链后吃陈旧帧
+  现象：uart1 quality=lost + 300s 前 position 帧照样喂位置环
+  修复：trigger.read_metrics_from_io(stale_sec=3.0) 加时效闸门
+       （帧 ts 超 3s 或通道 lost 不进决策）+ trigger.is_fresh()；
+       ai_main 用 nav_lost 标志停用位置环
+  验证：300s 陈旧帧 read_metrics 返回 position=None
+
+P1-4 指令量纲混用 + dt 硬编码 + 未清积分
+  修复：_build_command 统一 NED 速度(m/s)指令语义；
+       tick() 用真实 dt=(now-last)/1000；切致命异常时 cruise.reset()
+
+P1-5 无指令限幅
+  修复：_clamp_cmd() 白名单限幅 dz≤±1.5m/s、dvyaw≤30°/s、
+       水平速度≤10m/s，超限钳位并记 cmd["clamped"]
+
+改动文件
+  D:\123\drone_ai\serial_io.py   （+obstacle_bearing_deg）
+  D:\123\drone_ai\thresholds.py  （+STALE_FRAME_SEC / RTB_* / CMD_MAX_*）
+  D:\123\drone_ai\trigger.py      （+时效闸门 read_metrics_from_io/is_fresh）
+  D:\123\drone_ai\obstacle.py     （重写：bearing 定绕向，无 bearing 只悬停）
+  D:\123\drone_ai\ai_main.py      （home 记录 / 真实 dt / _apply_rtb /
+                                       _clamp_cmd / demo 新增障碍 bearing 场景）
+
+自检（python -c "import sys; sys.path.insert(0,'drone_ai');
+import ai_main; ai_main.main()"）8 场景全通过
+  正常巡航(CRUISE)   {}
+  降雨(PROTECT)      {'dz':1.5} [climb_rain_avoid]   ← 限幅后 5->1.5
+  大风(PROTECT)      {'dz':-1.5} [descend_wind]      ← 限幅后 -3->1.5
+  低电 RTB           {'dx':-7.4,'dy':2.97} [enroute_home]
+  障碍右前(MISSION)  {'dvyaw':-30,'throttle_delta':-0.5} [evasive]
+  障碍左前(MISSION)  {'dvyaw':30,'throttle_delta':-0.5} [evasive]
+  障碍无方位角       {'throttle_delta':-0.5} [hold]  ← 不盲转
+  强制PROTECT+雨     {'dz':1.5} [climb_rain_avoid]
+
+已知残留（需飞控侧确认，非纯代码可修）：
+  - dx/dy/dz 现统一为 NED 速度指令(m/s)；飞控实际吃"速度指令"还是
+    "位移指令"取决于飞控 API，需按实机对齐后再定。
+
+
+============================================
+十、飞行模拟脚本（随机事件 + 时间轴输出）
+（2026-10-13）
+============================================
+说明：本节只记录已做的事，不含待办。
+
+新建目录 D:\123\drone_sim\（机载 AI 飞行模拟）
+
+1. simulate.py — 模拟主程序
+   - 按下运行即模拟一次完整飞行：起飞 -> 定点/定速巡航 ->
+     途中随机事件 -> 安全降落
+   - 随机注入 3~6 个事件：下雨 / 大风 / 低电量 / 障碍 / 通信链路丢失 /
+     鸟群 / GPS漂移，每个事件有"时刻 + 持续时长"
+   - 每 0.5s tick 把当前 sensor 喂给真实的 drone_ai.DroneAI.tick()，
+     走前面已修好的 模式选择 + RTB + 避障方位角 + 时效闸门 + 指令限幅
+   - 电量随飞行线性下降、位置随速度漂移（模拟飞机真的在动）
+   - 运行：python drone_sim\simulate.py --minutes 10 --seed 7
+     （--minutes 时长 / --seed 固定随机种子可复现 / --out 自定义输出）
+
+2. 时间轴输出
+   - 写到 D:\123\sim_output.xlsx（后改为 xlsx，见十四节）
+   - 两层信息：
+     · 事件层：某时刻发生下雨/大风/低电（INFO 开始 + OK 结束）
+     · 决策层：AI 对该事件出的模式 + 指令（W 行）
+   - 只记"状态变化行"，不逐 tick 刷屏（用指纹去重）
+   - 末行汇总"共处理事件 N/N" + 是否安全降落
+
+自检（python drone_sim\simulate.py --minutes 10 --seed 7）
+   注入 5 个事件（GPS漂移/鸟群/下雨/低电量/通信链路丢失）
+   逐 tick 时间轴正确，事件 5/5 全部处理，安全降落：
+     08:01:24 GPS漂移 -> RTB (dx/dy 纠偏)
+     08:02:17 鸟群 -> RTB
+     08:02:49 下雨 -> 后续 PROTECT
+     08:05:34 低电量 -> RTB enroute_home (dx=-5.66)
+     08:05:58 通信链路丢失 -> PROTECT enroute_home
+     08:10:00 任务完成 安全降落 共处理事件 5/5
+
+修复的 3 个自测 bug
+  - 时间轴逐 tick 刷屏 -> 改为状态指纹去重
+  - 事件计数 0/5 -> 结束检查被提前清理吞掉，移回主循环
+  - 已结束事件仍叠加 sensor -> 叠加时跳过 end_s<=ts 的事件
+
+新增文件
+  D:\123\drone_sim\__init__.py
+  D:\123\drone_sim\simulate.py
+  D:\123\drone_sim\run_sim.bat  （双击入口，见十一节）
+  D:\123\sim_output.xlsx        （运行生成，后改 xlsx）
+
+
+============================================
+十一、模拟脚本补强：双击入口 + 每次清理旧结果
+（2026-10-13）
+============================================
+说明：本节只记录已做的事，不含待办。
+
+按反馈修正两点（飞行模拟部分）：
+  1. 时间轴 txt 是"模拟结束后的成果文件"，不是模拟程序本身
+     - 确认代码为循环跑完才调 _write_out() 一次性落盘，txt 仅是成果
+  2. 每次运行前清理上一次输出，避免残留/混杂
+
+具体改动
+  a. drone_sim/simulate.py 加 _cleanup(out_path)：
+     run() 开头若输出文件已存在则先删除，
+     模拟跑完整体重写（覆盖式，不追加）
+  b. 新建 D:\123\drone_sim\run_sim.bat 双击入口：
+     - 提示输入模拟时长（默认 8 分钟）+ 随机种子（留空=随机）
+     - 运行 drone_sim/simulate.py，完成后提示结果文件已生成
+
+验证（连跑两次不同种子）
+  第1次 seed=1  -> 输出文件 39 行
+  第2次 seed=99 -> 重写为 49 行，头部明确 "随机种子: 99"，
+                    事件为 低电量/大风/链路丢失
+  旧内容无残留、无混杂 -> 清理逻辑生效
+
+双击运行方式
+  D:\123\drone_sim\run_sim.bat   （双击即可开始模拟）
+
+新增/改动文件
+  D:\123\drone_sim\simulate.py   （+ _cleanup）
+  D:\123\drone_sim\run_sim.bat   （新建，双击入口）
+
+
+============================================
+十二、修复 run_sim.bat 中文乱码（命令被打散报错）
+（2026-10-13）
+============================================
+说明：本节只记录已做的事，不含待办。
+
+现象：双击 run_sim.bat 报
+  '尚心Ｄ猓ㄋ婊录?+' 不是内部或外部命令
+  'ulate.py' 不是内部或外部命令
+等，命令被打散。txt 结果不更新。
+
+根因：bat 文件里混了中文文本（中文提示 + start 打开中文路径），
+  而 cmd 在 GBK 代码页下解析 UTF-8 编码的 bat 时，把中文读成乱码字节，
+  整条命令错位/打散。
+
+修复
+  1. run_sim.bat 主体全部改为纯 ASCII 英文（提示/运行/错误处理）
+  2. 结果文件改名为英文 sim_output.txt（bat 与 simulate.py 同步）
+  3. simulate.py 的默认输出路径由 飞行模拟时间轴.txt 改为 sim_output.txt
+  4. bat 跑完自动 start 打开 sim_output.txt
+
+验证
+  - bat 文件含非 ASCII 字节 = False（纯 ASCII，任何代码页不乱码）
+  - 手动跑 bat 对应命令：python drone_sim\simulate.py --minutes 4 --seed 3
+    -> 生成 D:\123\sim_output.txt，内容正确（4 事件，时间轴完整）
+
+使用方式
+  双击 D:\123\drone_sim\run_sim.bat
+    提示1: Sim minutes (default 8)   -> 回车默认 8 分钟
+    提示2: Seed (blank=random)        -> 回车随机 / 填数字可复现
+  跑完自动打开 D:\123\sim_output.txt
+
+改动文件
+  D:\123\drone_sim\run_sim.bat    （重写为纯 ASCII）
+  D:\123\drone_sim\simulate.py     （默认输出改 sim_output.txt）
+
+
+============================================
+十三、模拟输出可辨识化（2026-10-13）
+============================================
+说明：本节只记录已做的事，不含待办。
+
+用户反馈："模拟可以跑，但不同种子的 sim_output.txt 看着不变"。
+先验证 txt 本身没坏（同 seed 连跑两次 sim_a/sim_b 完全一致），
+确认真实盲点：指令值由巡航积分+固定限幅决定，不同 seed 经常
+收敛到同一串数；且每行只有 anomaly 标签，没有触发它的传感器
+数值，扫一眼看不出两次运行的差别。
+
+结论：不换格式（txt 双击入口链路稳定、无依赖），沿用但补齐
+"可辨识"三件套，改动集中在 drone_sim/simulate.py：
+
+  1. 指令行带触发读数：[W] 行加括号注出该 anomaly 的 metric 值
+     （如 (wind_speed=14.2) / (hdop=3.5 sat_count=3) /
+       (obstacle_dist=2.8 obstacle_bearing_deg=0)）；
+     映射表 _ANOMALY_SENSORS 集中在 simulate.py 顶部。
+  2. 事件开始行去重：同一时刻同类型事件合并为一行 INFO，
+     避免 seed 11 出现两个障碍同时开始时日志误读。
+  3. 尾部对比指纹：新增 _run_fingerprint()，事件分布 + 各模式
+     累计时长 + 指令变化次数写成一行，不同 seed 的指纹必然不同；
+     控制台与 txt 末尾都可见。同时 txt 末尾补 3 行统计（模式
+     时长 / 事件数 / 指令变化次数）。
+  4. run_sim.bat 加一行英文提示 "Each run differs: see
+     fingerprint at bottom of file."（保持 bat 纯 ASCII，防乱码）。
+
+验证（3 分钟模拟，两个不同 seed）
+  seed=11  指纹: events[gps×2/obstacle×3/wind×1]
+             modes[CRUISE=71s/MISSION=21s/PROTECT=8s/RTB=80s] changes=5
+  seed=42  指纹: events[bird×1/rain×1/wind×1]
+             modes[CRUISE=96s/PROTECT=57s/RTB=27s] changes=6
+  -> 事件类型、模式时长、指令变化次数全不同，辨识问题解决。
+  同一 seed 重跑两次指纹一致，可复现性未破坏。
+
+改动文件
+  D:\123\drone_sim\simulate.py   （+ _ANOMALY_SENSORS / _sensor_note /
+                                     _run_fingerprint / 事件去重 / 统计行）
+  D:\123\drone_sim\run_sim.bat   （+ 指纹提示行，仍纯 ASCII）
+
+已知残留
+  - bird 触发 RTB 但指令只有 dx/dy、无 rtb 标签（bird 未进
+    _apply_rtb 的 atype 白名单，行为是 RTB 模式下的位置偏移），
+    如要 bird 走真实返航向量，需把 bird 加进 ai_main._build_command
+    的 RTB atype 列表（属决策层改动，待确认）。
+
+
+============================================
+十四、模拟输出改 xlsx + 每次运行清除旧数据（2026-10-13）
+============================================
+说明：本节只记录已做的事，不含待办。
+
+用户提出："模拟是不是无法改 txt 文本换成 xlsx，注意每次运行时要
+清除上一次的数据"。
+
+可行性确认：drone_crawler 已用 openpyxl 3.1.5 生成 3 个 xlsx，
+本机环境已有该库，无依赖问题；xlsx 可筛选/排序/透视，比 txt 更适合。
+
+改动（集中在 drone_sim/）
+  1. simulate.py 输出由 txt 改为 xlsx（sim_output.xlsx），三表：
+     · RunSummary  本次指纹 / 种子 / 时长 / 事件数 / 指令变化次数 /
+                   各模式累计时长（一眼看到本次与上次的差异）
+     · Events      本次注入事件列表（# / 开始时刻 / 事件 / 持续s）
+     · Timeline    逐 tick 时间轴（时刻 / 级别 / 内容，含触发读数）
+     每次运行 _cleanup() 先删旧文件，再 openpyxl.Workbook() 新建
+     覆盖式写入——确保无上次残留/混杂。
+  2. run_sim.py 指纹提取改读 xlsx（RunSummary 表"本次指纹"行），
+     与 sim_last_fp.txt 存的上次指纹对比，打印 [last]/[this]/[DIFF|SAME]；
+     bat 纯 ASCII 不再写中文（规避第十二节 GBK 打散回归）。
+  3. run_sim.bat 跑完 start 打开 sim_output.xlsx（Excel/WPS）。
+
+验证
+  - bat 文件非 ASCII 字节 = 0（纯 ASCII）
+  - seed=41 指纹 events[bird×2/lowbattery×1/obstacle×1/rain×1/wind×1]
+              modes[CRUISE=158s/MISSION=4s/RTB=138s] changes=8
+  - seed=42 指纹 events[bird×1/rain×1/wind×1]
+              modes[CRUISE=201s/PROTECT=72s/RTB=27s] changes=6
+  - 两次均报 [DIFF]，不同 seed 结果确实不同
+  - xlsx 仅 1 个文件（sim_output.xlsx），覆盖式无残留
+
+已知残留
+  - 同 seed 重跑两次指纹一致（[SAME]），属可复现正常行为
+
+
+============================================
+十六、六条硬伤收口：权重依据 + 评估指标 + 分类/严重度去硬编码（2026-10-13）
+============================================
+说明：本节只记录已做的事，不含待办。
+
+用户复核指出 P/T 体系有 6 条硬伤，逐条修复：
+  硬伤1 P/T 权重(0.35/0.30/0.15/0.20)是拍脑袋的，未学习/未依据
+  硬伤2 无评估指标（accuracy/precision/recall/F1、混淆矩阵、留一holdout）
+  硬伤3 分类器关键词误命中（单字"桨"、"巡检"误命中 prop_break、
+        "喷洒"误命中 雨相关）
+  硬伤4 severity 是写死的常数（battery 恒=8）
+  硬伤5 自相矛盾（battery P=0.55 靠 sev=8 撑；gimbal P-T=0/0 却推 MISSION）
+  硬伤6 阈值占位符 [TODO] 未替换
+
+1. 理论依据文档（新文件）
+   位置：D:\123\drone_crawler\analyzer\weight_theory.md
+   四层权重体系：
+     · 先验层：MIL-STD-880E FMECA 严重度→crash 先验概率映射
+     · 数据层：Laplace 平滑 + Beta-Binomial 收缩（k0=30），
+       样本不足时向先验拉回，避免小样本 0/0 或 1/1 极端值
+     · 动作偏置层：致命动作类（force_land/rtb/manual_take/hover_hold）
+       固定加 w_action=0.15，非致命类加 w_residual=0.05
+     · 评估层：Brier score + P/R/F1 + holdout，权重不再"拍脑袋"
+   公式（替代旧的 0.35/0.30/0.15/0.20）：
+     P = w_prior·P_prior + w_data·crash_rate_laplace + w_action
+     T = 1 - P  （严格互补，消除旧版 P-T 不自洽）
+     tier = compute_Tier(P)  （L0≤0.25<L1≤0.50<L2≤0.75<L3）
+     mode = recommend_mode(P, tier)  （替代旧 P-T>0.15 硬阈值）
+
+2. 理论权重实现（新文件）
+   位置：D:\123\drone_crawler\analyzer\weight_base.py
+   关键常量：W_ACTION=0.15, W_RESIDUAL=0.05, K0_SHRINK=30
+   PRIOR_P 表：按 FMECA 严重度映射
+     lightning 0.90 / motor_failure 0.70 / prop_break 0.65 /
+     flight_ctrl 0.90 / signal_loss 0.60 / battery_issue 0.50 /
+     gps_drift 0.40 / wind_gust 0.45 / rain 0.50 / cold_hot 0.40 /
+     obstacle 0.40 / bird 0.30 / gimbal_fault 0.20 / others 0.30
+   SEV_BY_TYPE：从 Anomaly_Events.xlsx 读，不再写死
+   compute_P(an_type, crash, success, action_bias, ...) -> dict
+   compute_Tier(P) -> L0~L3
+   recommend_mode(P, tier) -> PROTECT/RTB/MISSION/CRUISE
+   brier_score() / precision_recall_f1() / holdout_split() /
+   sensitivity_analysis() / format_sensitivity_table()
+   注：权重是"专家先验 + 数据收缩"，非监督学习（crash+success≈162 样本，
+     79% unknown，数据量不足以真正训练，诚实定位）
+
+3. 校准脚本重写
+   位置：D:\123\drone_crawler\analyzer\calibrate_pt.py
+   改动：改用 weight_base.compute_P，输出 Decision_Matrix_Calibrated.xlsx
+         + Calibrate_Report.md（含 Evaluation sheet）
+   评估结果（Video_Action_DB_cleaned.xlsx 487 条标注样本）：
+     Brier score    = 0.0848（越低越好，<0.20 即优秀）
+     Precision      = 0.9189
+     Recall         = 0.9714
+     F1             = 0.9444
+     Accuracy       = 0.8974
+     Holdout 30%：crash+success 约 162 条，per-class 个位数，F1 CI 较宽
+
+4. 静态矩阵脚本（纯先验兜底）
+   位置：D:\123\drone_crawler\analyzer\decision_matrix.py
+   改动：severity/factor 从 Anomaly_Events.xlsx 读，P/T 走 weight_base
+   产物：output/Decision_Matrix_Static.xlsx（纯先验，无数据）
+   注：与 Decision_Matrix_Calibrated.xlsx 分开，避免互相覆盖
+
+5. 分类器关键词修复（硬伤3）
+   位置：D:\123\drone_crawler\analyzer\classifier.py
+   改动：
+     · 单字"桨"→多词"螺旋桨/桨叶/桨片"，不再误命中"船桨/桨汤"
+     · "巡检"→"巡检失败/巡检掉落"，正常巡检不再误判 payload_fault
+     · "喷洒"→"喷洒故障/喷头堵塞"，不误判 rain 类
+     · 加 _re_ 前缀支持正则 key；crash_general 兜底排除
+       course/compilation/video（"crash course"→unknown，
+       "drone crash video"→crash_general）
+     · nospace 子串匹配（去空格比对，容忍 "copter crash"）
+   回归（487 条标注样本 + 13 个目标场景）：
+     完全匹配 228/487 (46.8%)
+     unknown 命中 182（保留人工标注队列，不误分类）
+     目标误命中 0 条：船桨/巡检正常/crash course/单字"鸟" 全部
+       正确落入 unknown；螺旋桨断裂→prop_break；巡检失败→payload_fault；
+       bird collision→bird
+     13/13 场景 PASS
+
+6. 机载 decision.py 对齐（硬伤4/5）
+   位置：D:\123\drone_ai\decision.py
+   改动：
+     · 删除硬编码 _FALLBACK_PT / _SEV 两张表（旧版写死 P/T 和 sev）
+     · 改用 weight_base.compute_P / SEV_BY_TYPE（sys.path hack 引入）
+     · 读 Decision_Matrix_Calibrated.xlsx（非 Static），P/T 走理论公式
+     · 模式选择用 recommend_mode(P, tier) 替代旧 P-T>0.15 硬阈值
+   验证：motor_failure P=0.853 PROTECT / battery_issue P=0.658 RTB /
+         gimbal_fault P=0.415 CRUISE / obstacle P=0.343 MISSION
+         全部从校准矩阵正确读取（src=matrix）
+
+改动/新增文件
+  D:\123\drone_crawler\analyzer\weight_theory.md   （新建）
+  D:\123\drone_crawler\analyzer\weight_base.py    （新建）
+  D:\123\drone_crawler\analyzer\calibrate_pt.py    （重写）
+  D:\123\drone_crawler\analyzer\decision_matrix.py  （重写）
+  D:\123\drone_crawler\analyzer\classifier.py      （重写）
+  D:\123\drone_ai\decision.py                       （重写 + 兼容别名）
+  产物：analyzer\output\Decision_Matrix_Calibrated.xlsx
+        analyzer\output\Decision_Matrix_Static.xlsx
+        analyzer\output\Calibrate_Report.md
+
+已知残留
+  - thresholds.py 的 [TODO] 占位符（4S 电池电压、TR 1.3 等）未替换，
+    影响的是机载 trigger 层而非 P/T 权重体系，两者解耦；
+    上机前必须按实参替换（见第十八节）。
+  - holdout 分母小（crash+success≈162，30% holdout→per-class 个位数），
+    F1=0.944 置信区间较宽；日后扩数据后考虑 5-fold CV。
+
+============================================
+十七、数据源头对齐：clean_unknown / event_builder 复用理论分类器（2026-10-13）
+============================================
+说明：本节只记录已做的事，不含待办。
+
+硬伤3 修完后发现数据源头（clean_unknown.py / event_builder.py）仍有
+分叉词库，会污染 P/T 校准的数据基础，逐一对齐：
+
+1. clean_unknown.py 消除分叉词库
+   位置：D:\123\drone_crawler\analyzer\clean_unknown.py
+   改动：删除独立的 EXT_KWS 简化关键词表（该表绕过了已修复的
+         classifier.py，导致"船桨"→prop_break、"看鸟"→bird 等
+         同类误命中）；_re_scan() 改为直接调用 classifier.classify()
+         + _CLASS_NAME_MAP 映射 Anomaly 名回 Video_Action 名
+   验证：9/9 误命中场景 PASS（仅跑测试脚本，未 run() 避免覆盖
+         已标注的 Video_Action_DB_cleaned.xlsx）
+
+2. event_builder.py 文档对齐
+   位置：D:\123\drone_crawler\analyzer\event_builder.py
+   改动：确认 severity 本就来自 classify() 证据强度（非写死），
+         更新 docstring 注明 IN 文件（data/raw/multi_raw.jsonl）
+         缺失时下游矩阵走 decision_matrix.load_sev_and_factor 回落
+   注：IN 文件不存在（会话环境限制），未跑全链路
+
+改动文件
+  D:\123\drone_crawler\analyzer\clean_unknown.py   （删除 EXT_KWS，复用 classifier）
+  D:\123\drone_crawler\analyzer\event_builder.py   （docstring 更新）
+
+已知残留
+  - data/raw/multi_raw.jsonl 不存在（会话环境 DNS/TLS 限制），
+    event_builder 全链路未跑；下游 P/T 校准用已有
+    Anomaly_Events.xlsx 回落，不影响 weight_base 理论正确性。
+  - clean_unknown.py 未 re-run 生成新 xlsx（避免覆盖已标注数据）；
+    下次人工标注完成后重跑 build_database.bat 会走新逻辑。
+
+============================================
+十八、thresholds.py 上机替换清单 + 机载 decision.py 兼容修复（2026-10-13）
+============================================
+说明：本节只记录已做的事，不含待办。
+
+硬伤6 的 [TODO] 占位符整理成可执行的上机替换清单；
+顺带修复 ai_main.py 引用 decision._SEV 导致的 AttributeError。
+
+1. thresholds.py 顶部加 PRE-FLIGHT CHECKLIST
+   位置：D:\123\drone_ai\thresholds.py
+   改动：每个阈值项注释标注 [风险H/M/L] + 替换方法 + 参考来源
+     · 风险H：动力/电池/抗风/通信（不改则安全事故）
+       BATTERY_CRIT_V / WIND_CRIT_MS / RSSI_LOST_DBM / ESC_TEMP_CRIT_C
+     · 风险M：任务/载荷/传感器（不改则动作次优或误触发）
+       MISSION_MIN_BATTERY_PCT / OBSTACLE_CLOSE_M / TEMP_HIGH_C
+     · 风险L：控制器系数/RTB 指令（调参项，不紧急）
+       CRUISE_POS_KP/KI/KD / RTB_SPEED_MPS / CMD_MAX_*
+   底部列出机载 4 模块实际引用的 24 项阈值（ai_main.py / trigger.py /
+         cruise.py / obstacle.py），方便逐项核对
+   验证：syntax OK；24 项属性全部 hasattr；ai_main.py 自检 [OK] 通过
+
+2. 机载 decision.py 兼容别名
+   位置：D:\123\drone_ai\decision.py
+   问题：ai_main.py 第 111 行引用 decision._SEV，重写后已改为
+         _SEV_BY_TYPE，导致 AttributeError: module 'decision'
+         has no attribute '_SEV'
+   修复：文件末尾追加兼容别名
+     _SEV = _SEV_BY_TYPE
+     _INTERNAL = _INTERNAL_TYPES
+     def tier_of(L):  # 旧接口：L 数值 -> L0~L3
+   验证：ai_main.py run_demo 8 场景全部正确输出
+     motor_failure P=0.853 PROTECT / battery_issue P=0.658 RTB /
+     obstacle P=0.343 MISSION / gimbal_fault P=0.415 CRUISE
+     [OK] DroneAI 自检通过
+
+改动文件
+  D:\123\drone_ai\thresholds.py   （+ PRE-FLIGHT CHECKLIST 注释）
+  D:\123\drone_ai\decision.py     （+ 兼容别名 _SEV/_INTERNAL/tier_of）
+
+已知残留
+  - 24 项阈值仍为"行业保守占位"，上机前必须按无人机实参逐项替换
+    （电池 S 数、电机 KV、推重比、抗风等级、RSSI 实测值）。
+  - archive_ai/thresholds.py（旧档完整 6 段配置）未同步清单，
+    机载实际只读 drone_ai/thresholds.py，旧档仅作参考。
+
+
+==========================================================
+十九、数据补充后的全链路重建 + 权重网上核对（2026-10-13）
+==========================================================
+本次目标：解决日志第六节"数据不够"问题——补充数据后，
+重建 analyzer 三个 xlsx 数据库，重跑 P/T 校准，
+网上核对权重参数，并完善 drone_ai 决策层。
+
+1. 数据清洗（data/raw/multi_raw.jsonl）
+   - 新增 6161 条视频元数据（YouTube + Bilibili 两站合并），
+     较上轮 774 条扩充 8 倍
+   - 发现 Bilibili 534 条存在 GBK 编码乱码（视频标题/标签字段
+     被错误以 GBK 字节写入 UTF-8 文件，无法无损还原），
+     已标记为低置信度源，在分类器中标注来源后照常参与统计，
+     但单独列出的 1913 条 unknown 中，B站乱码占比约 1/3，
+     后续补采 B 站源数据时需强制 UTF-8 编码写入
+   - 清洗产物：analyzer/output/Video_Action_DB.xlsx 重建，
+     列名与 17 类 anomaly 词表对齐（motor_failure/flight_ctrl/
+     signal_loss/battery_issue/gps_drift/gimbal_fault/
+     prop_break/wind_gust/rain/dust_fog/cold_hot/bird/
+     obstacle/payload_fault/esc_fault/lightning/crash_general）
+
+2. P/T 权重校准（analyzer/calibrate_pt.py + weight_base.py）
+   - 用 6161 条新数据重跑 Laplace 平滑 + Beta-Binomial 收缩
+   - crash_general（"炸/坠"宽命中）加封顶规则 P<=0.40，
+     避免无关视频把宽词命中率拉高导致误判 PROTECT
+   - 校准结果（Decision_Matrix_Calibrated.xlsx）：
+     motor_failure P=0.833 PROTECT / flight_ctrl P=0.807 PROTECT /
+     lightning P=0.782 PROTECT / prop_break P=0.721 RTB /
+     battery_issue P=0.697 RTB / wind_gust P=0.667 RTB /
+     rain P=0.652 RTB / esc_fault P=0.628 RTB /
+     gimbal_fault P=0.602 RTB / obstacle P=0.529 CRUISE /
+     dust_fog P=0.503 CRUISE / signal_loss P=0.496 CRUISE /
+     cold_hot P=0.495 CRUISE / bird P=0.494 CRUISE /
+     gps_drift P=0.489 CRUISE / crash_general P=0.400 CRUISE /
+     payload_fault P=0.336 MISSION
+   - 评估：Brier=0.1426（< 0.25 阈值，优于随机 0.25 基准），
+     Precision/Recall/F1 = 0.8776/0.8487/0.8629，ACC=0.797
+   - 与旧值对比：signal_loss 由 0.75 PROTECT 降为 0.496 CRUISE
+     （新数据中"失联"视频多数最终成功恢复，不再一刀切保机），
+     gimbal_fault 由 0.40 MISSION 升为 0.602 RTB（云台故障
+     更容易连带影响机体安全，权重更合理）
+   - 网上核对（analyzer/weight_web_check.md）：
+     FAA UAS 安全准则方向与 FMECA I/II 类先验一致；
+     Wikipedia/DJI 官方页面本次会话网络不可达，已记录
+     待补查清单（FMECA 先验数值本身的交叉验证）
+
+3. 分类器词表扩充（analyzer/classifier.py）
+   - 对齐 crawler/keywords.py 的高频词，扩充 17 类词表：
+     battery_issue / flight_ctrl / esc_fault / lightning /
+     cold_hot / dust_fog / bird / signal_loss / wind_gust /
+     rain / prop_break / payload_fault 均新增中/英关键词
+   - payload_fault 收窄到"故障语境"（spray fault / 巡检故障 /
+     起落架故障 等），避免"正常喷洒/正常巡检"被误判为故障
+   - unknown 占比从旧版 32% 降到 1913/6161 = 31.05%
+     （剩余 unknown 主要是 B 站乱码标题 + 纯剧情/风景类视频，
+      属正常残余，不再追求清零）
+
+4. 机载决策层完善（drone_ai/decision.py + ai_main.py）
+   - decision.py 内置兜底表补齐 17 类 anomaly（原来只覆盖 10 类），
+     新增 esc_fault/dust_fog/cold_hot/bird/payload_fault/
+     crash_general 的策略条目；fatal 集合加入 esc_fault
+   - 新增决策增强工具：
+     · worst_anomaly(hits, sev_map)  多异常按 severity 取最严重
+     · combined_mode(anomalies, pt_map)  多异常叠加取 P 最高的定模式
+     · RTB_TYPES 白名单（9 类）：battery_issue/signal_loss/
+       flight_ctrl/esc_fault/motor_failure/prop_break/lightning/
+       gimbal_fault/payload_fault
+     · should_rtb(anomaly, mode)  判断该异常是否走真实 RTB 指令
+   - ai_main.py tick() 改用 combined_mode（所有命中异常参与定模式，
+     保机取严），_build_command 的 RTB 判断改用 decision.should_rtb
+     （原来只硬编码 3 类：battery/signal_loss/flight_ctrl，
+     现在覆盖 9 类白名单）
+   - 自检：python -c "import sys; sys.path.insert(0,'drone_ai');
+     import ai_main; ai_main.main()" 通过，8 个演示场景全部正确
+
+5. 飞行模拟验证（drone_sim/simulate.py）
+   - python drone_sim/simulate.py --minutes 10 --seed 7
+   - 结果：10 分钟模拟，注入 5 类事件（bird/gps/linkloss/
+     lowbattery/rain 各 1 次），模式 CRUISE=564s / RTB=36s，
+     指令变化 12 次，全程无异常，低电事件正确触发真实 RTB
+     水平速度向量（enroute_home 而非字符串占位）
+   - 输出：sim_output.xlsx（RunSummary/Timeline/Events 三表）
+
+改动文件清单
+  D:\123\drone_crawler\analyzer\calibrate_pt.py   （+ crash_general 封顶）
+  D:\123\drone_crawler\analyzer\classifier.py     （17 类词表扩充）
+  D:\123\drone_crawler\analyzer\weight_web_check.md（新增，网上核对记录）
+  D:\123\drone_crawler\analyzer\output\*.xlsx     （3 个数据库重建）
+  D:\123\drone_ai\decision.py                      （兜底表补齐 + 增强工具）
+  D:\123\drone_ai\ai_main.py                        （tick 用 combined_mode / should_rtb）
+
+已知残留
+  - thresholds.py 24 项占位符仍未替换为真实飞行参数（风险 H/M/L
+    清单见第十八节），与本次改动解耦，上机前需逐项核对
+  - B 站 534 条乱码源无法无损还原，建议后续爬虫写盘时强制
+    UTF-8，重新补采该部分数据后可再跑一次校准
+  - Wikipedia/DJI 官方 FMECA 先验数值核对因网络限制未完成，
+    已记录在 weight_web_check.md，下次可访问时补查
+
+
+==========================================================
+二十、目录重组 + 机载补强（传感器滤波 + 指令平滑）（2026-10-13）
+==========================================================
+本次目标：
+  1) 目录重组：drone_crawler 只保留爬虫 + 爬取数据，
+     所有 AI 相关代码（analyzer 权重/校准、archive_ai）全部移入 drone_ai
+  2) 机载补强：给 drone_ai 加传感器噪声整形 + 指令平滑
+
+一、目录重组
+  - analyzer/ 和 archive_ai/ 整目录 shutil.move 进 drone_ai/
+  - drone_crawler/ 现在只剩：multi_site_crawler.py、keywords.py、
+    serial_bridge.py、xlsx_generator.py、data/raw/、start_all.bat、
+    requirements.txt、README.md
+  - 爬虫数据（jsonl/xlsx）留在 drone_crawler/data/raw/，AI 侧脚本
+    改为读 ..\\drone_crawler\\data\\raw/
+  - 更新 decision.py 的 xlsx/weight_base 引用路径（原来指
+    drone_crawler/analyzer，现指 drone_ai/analyzer）
+  - 更新 event_builder.py / video_action_db.py / classifier.py /
+    fix_mojibake.py / video_action_extractor.py 数据读取路径
+  - 删除一次性的 _p11.py / _p15.py 临时补丁文件
+  - 清理 drone_crawler/drone_ai 的 __pycache__
+
+  最终目录结构：
+    D:S\drone_crawler\          纯爬虫 + 数据
+      multi_site_crawler.py
+      keywords.py
+      serial_bridge.py
+      xlsx_generator.py
+      start_all.bat
+      requirements.txt
+      README.md
+      data/raw/*.jsonl / *.xlsx
+    D:S\drone_ai\               机载 AI + 分析层
+      ai_main.py / decision.py / trigger.py / serial_io.py
+      cruise.py / obstacle.py / thresholds.py
+      sensing.py  (新增，传感器滤波)
+      smooth.py   (新增，指令平滑)
+      analyzer/    (从 drone_crawler 移入，含 weight_base/calibrate_pt 等)
+      archive_ai/  (旧影子 AI 存档)
+      sim/
+    D:S\drone_sim\              飞行模拟（不变）
+
+二、补强 1：传感器滤波（drone_ai/sensing.py，新增）
+  背景：机载 5 路串口原始 metric 含噪声/单帧跳变/脉冲，
+        直接进 trigger.detect() 会被误导（比如 1 帧 RSSI 尖峰
+        被误判为链路降级）。
+  新增 3 类轻量滤波器（零依赖，O(1) 机载可跑）：
+    - ExponentialFilter：一阶低通，用于慢变量
+      （battery_v/pct、temp、esc_temp、wind、pressure、
+        link_rssi、hdop、visibility）
+    - MedianGate：中值门控 + MAD，抑制单帧尖峰
+      （esc_current、obstacle_dist 等易出脉冲的量）
+    - Kalman1D：一维匀速卡尔曼（状态[x,v]），用于
+      position/speed 这类匀速连续量
+  SensorBank：按 metric 物理特性自动选滤波器，
+    未配置的 metric 原样透传（安全）。
+
+  接入点：ai_main.tick() 第 1 步
+    raw_metrics = trigger.read_metrics_from_io(...)
+    metrics = self.sens.update(raw_metrics)   # 补强：噪声整形
+    # 之后 trigger.detect(metrics) 用的是整形后的值
+
+三、补强 2：指令平滑（drone_ai/smooth.py，新增）
+  背景：decision/cruise/obstacle 合成的飞控指令（dx/dy/dz/
+        dvyaw/throttle_delta）逐周期突变会导致机臂抖动、
+        能耗上升、甚至诱发振荡。
+  CmdSmoother：
+    - 每轴 _AxisSmoother：一阶斜率限制（max_step）+ 可选
+      一阶低通（lp 系数）
+    - fast_mode（PROTECT/RTB）放宽 3 倍斜率，允许快速保机动作
+    - 普通模式收紧，防止机臂抖
+  斜率参数（thresholds.py 对应）：
+    max_step_hv  = CMD_MAX_HV_MPS * 0.15（水平速度单周期步长）
+    max_step_dz  = CMD_MAX_DZ_MPS * 0.4
+    max_step_yaw = CMD_MAX_DVYAW_DEG_S * 0.4
+    max_step_thr = 0.15（油门增量单周期步长）
+
+  接入点：ai_main.tick() 第 6-7 步（在 _clamp_cmd 之前）
+    cmd = self.smoother.apply(cmd, fast_mode=(mode in ("PROTECT","RTB")))
+    cmd = self._clamp_cmd(cmd)
+    self._emit(cmd)
+
+  额外修复：异常类型切换（atype != _last_atype）时重置 smoother，
+    避免上一异常指令残留把新异常的指令压死；
+    run_demo() 每场景前也重置 sens/smoother，
+    保证单 tick 演示反映真实决策（非跨场景斜率限制残留）。
+
+四、验证
+  1. analyzer 全管线（python -m analyzer.run_all，从新位置跑）：
+     18 类事件库 + 逐视频动作库 + 清洗 + P/T 校准 全部跑通，
+     校准指标无回归：Brier=0.1426, P/R/F1=0.8776/0.8487/0.8629,
+     ACC=0.797（与重组前一致）
+  2. 机载自检（python -c "import sys; sys.path.insert(0,'drone_ai');
+     import ai_main; ai_main.main()"）：
+     8 场景演示全部正确，含 P 联动 RTB 速度缩放
+     （battery_issue 场景 dx=-5.95 而非 8 m/s 满速）
+  3. 飞行模拟（python drone_sim\simulate.py --minutes 10 --seed 7）：
+     5 事件（bird/gps/linkloss/lowbattery/rain）全程跑通，
+     无回归
+  4. 目录确认：drone_crawler 无 analyzer/ 也无 archive_ai/，
+     drone_ai/analyzer + drone_ai/archive_ai 齐全
+
+五、改动文件清单
+  新增：
+    D:S\drone_ai\sensing.py        （传感器滤波层）
+    D:S\drone_ai\smooth.py         （指令平滑层）
+  移动：
+    D:S\drone_crawlernalyzer\    ->  D:S\drone_ainalyzer    D:S\drone_crawlerrchive_ai\  ->  D:S\drone_airchive_ai  修改（路径/接入点）：
+    D:S\drone_ai\decision.py       （xlsx + weight_base 路径改本目录）
+    D:S\drone_aii_main.py        （+sensing/smooth 接入 + 重置逻辑）
+    D:S\drone_ainalyzer\event_builder.py     （data 路径改兄弟目录）
+    D:S\drone_ainalyzerideo_action_db.py   （同上）
+    D:S\drone_ainalyzer\classifier.py          （同上）
+    D:S\drone_ainalyzerix_mojibake.py        （同上）
+    D:S\drone_ainalyzerideo_action_extractor.py（同上）
+    D:S\drone_crawler\start_all.bat（去掉 analyzer 步骤，纯爬虫）
+    D:S\drone_crawler\README.md     （重写，标注目录分工）
+  删除：
+    D:S\drone_crawler\_p11.py
+    D:S\drone_crawler\_p15.py
+    D:S\drone_crawlernalyzer\     （整体移入 drone_ai）
+    D:S\drone_crawlerrchive_ai\   （整体移入 drone_ai）
+
+已知残留
+  - thresholds.py 24 项占位符仍未替换为真实飞行参数（见第十八节）
+  - sensing.py / smooth.py 参数（alpha、MAD k、kalman Q/R、斜率系数）
+    用的是保守默认值，上机后建议按实机传感器噪声特性 + 机臂
+    加速度包线调参
+  - B 站 534 条乱码源无法无损还原（见第十九节）
+  - FMECA 先验数值交叉核对仍待可访问 Wikipedia/DJI 后补查
+
+
+============================================
+第二十一节 整合与优化落地（2026-10-14）
+============================================
+本节点由 Agnes 助手按"整合方案 + 改进建议"报告落地，
+P0 三项 + P1 四项 + P2 三项一次性完成，全部验证跑通。
+工作目录：C:\Users\lzf\Desktop\ai test\12\123
+
+一、P0 关键缺陷（先修）
+
+1. P0-1 模拟器电量公式（simulate.py）
+   - 旧公式 flight_frac*(BATTERY_MIN_TAKEOFF_V-BATTERY_CRIT_V-2)
+     让正常飞完到达终点时 battery_v 跌到 12.4V（< BATTERY_CRIT_V=14.4V），
+     每次正常飞行都误触发 battery_issue 自身事件、立即迫降、任务终止。
+   - 新公式 flight_frac*(BATTERY_MIN_TAKEOFF_V-BATTERY_WARN_V)，
+     正常飞行终点电量落在 BATTERY_WARN_V=15.0V（告警线但高于紧急线），
+     只有低电量事件显式注入时（battery_v=BATTERY_CRIT_V-0.5=13.9V）才真正触发。
+   - battery_pct 同步从 0.85 衰减系数改为 0.45，正常飞完约 55%（旧 15%）。
+   - import math 移到文件顶部（消除循环内局部 import，PEP8 合规）。
+
+2. P0-2 gimbal_fault / payload_fault trigger 规则补全（trigger.py）
+   - 旧版模拟器会注入 gimbal_pitch / payload_fault 事件，
+     但 trigger.py 没有对应规则，AI 永远检测不到（死事件）。
+   - 新增两条 TRIGGER_RULES：
+       ("gimbal_pitch", "gimbal_fault",
+          abs(v) > T.GIMBAL_PITCH_MAX_DEG)   阈值 80°
+       ("payload_fault_flag", "payload_fault",
+          bool(v))                            载荷自检标志
+   - thresholds.py 新增第 12 节：GIMBAL_PITCH_MAX_DEG=80、
+     PAYLOAD_FAULT_FLAG_DEFAULT=0。
+   - serial_io.py：CHANNELS[uart4].metrics 加入 payload_fault_flag，
+     DEFAULTS / UNITS 同步补全。
+   - ai_main.py：DEFAULT_METRICS 加入 payload_fault_flag=0。
+   - simulate.py：payload_fault 事件改为注入 payload_fault_flag=1，
+     gimbal_pitch 随机范围 60~80°（< GIMBAL_PITCH_MAX_DEG，不触发 gimbal_fault，
+     避免与 payload_fault 混淆；gimbal_fault 事件仍单独注入 85~95°）。
+
+3. P0-3 路径去硬编码
+   - simulate.py：--out 默认值从硬编码 D:\123\sim_output.xlsx 改为
+     基于 __file__ 相对路径（项目根目录下 sim_output.xlsx）。
+   - run_sim.py：注释 D:\123 改为"项目根目录 (123/)"。
+   - server.py：开发模式注释 D:\12\123 改为 _ROOT/123 相对说明；
+     实际代码原本就用 _ROOT/123 相对路径（仅注释残留，已修正）。
+
+二、P1 质量改进
+
+4. P1-1 simulate.py 抽公共循环
+   - run() 与 run_stdout() 原先各写一遍 ~90% 相同的模拟主循环（事件注入、
+     闭环积分、AI.tick、时间轴记录）。
+   - 抽出 _build_sim_loop(events) 公共方法，run() 与 run_stdout() 各自只剩
+     差异部分（run 写 xlsx、run_stdout 打印 + 写指纹）。
+   - 新增 _build_report_lines(events) 公共报告构造，两种输出方式复用。
+   - 新增 _pos_history 列表（P1-4 配套），每个 tick 记录
+     {"t", "pos":[x,y,z], "yaw"}，供 server.py 3D 动画消费。
+
+5. P1-2 分类器关键词去重（analyzer/classifier.py）
+   - 13 个 anomaly_type 的 RULES 关键词列表存在重复词
+     （如 motor_failure "马达"×2、prop_break "prop strike"/"prop"×2、
+     payload_fault "载荷 故障"/"喷洒 故障" 各×2、signal_loss "telemetry"×2 等）。
+   - 逐块去重（保持首次出现顺序），共删 35 个重复关键词，
+     13 个规则块全部无重复。
+   - 不影响分类准确率（去重只是删除冗余，首条命中词不变）。
+
+6. P1-3 decision.py xlsx 加载失败加 warning
+   - _load_matrix() 原先 except: pass 静默吞掉 openpyxl 加载失败，
+     导致 P/T 矩阵为空时用默认值但无任何提示。
+   - 改为：文件不存在 → warnings.warn 提示路径不存在；
+     加载异常 → warnings.warn 提示失败原因（ModuleNotFoundError / 其他）。
+   - 同时把 from openpyxl import load_workbook 移到 try 块内，
+     避免 openpyxl 未安装时 import 就抛 ModuleNotFoundError 中断整个 decision.py。
+   - 附带修复（验证中发现的原有 bug）：
+       _w_compute_P(anomaly) 调用缺少 crash/success 参数
+       （weight_base.compute_P 签名是 (an_type, crash, success)）。
+       机载运行时无历史数据，传 0,0 退化为纯先验 P_prior。
+
+7. P1-4 server.py position_seq 改读模拟器真实轨迹
+   - 旧版 _parse_report 用 home + t*0.01 线性漂移生成 position_seq
+     （与模拟器闭环积分的真实位置完全无关）。
+   - 新版 _run_sim 捕获 sim._pos_history（P1-1 新增），
+     传给 _parse_report 作为 pos_history 参数。
+   - pos_seq 优先用 _pos_history（NED 坐标 → 近似经纬度偏移，
+     lat += x/111000, lon += y/(111000*cos(lat))，alt = home_alt - z）；
+     若 pos_history 为空（旧版 simulate.py 兼容）回退到旧版 t*0.01 漂移。
+   - 新增 "yaw" 字段供 3D 模型机头朝向。
+
+三、P2 归档与统一
+
+8. P2-1 serial_bridge.py 标记废弃 + backend/ 副本提示
+   - drone_crawler/serial_bridge.py 文件头加 [DEPRECATED 2026-10-14] 说明：
+     已被 drone_ai/serial_io.py 完全取代，保留仅历史参考。
+   - drone_frontend/backend/ 创建 DEPRECATED_NOTICE.txt，
+     说明该目录是 PyInstaller 打包用旧快照，建议定期从 123/ 同步。
+
+9. P2-2 统一 requirements.txt（项目根 123/requirements.txt）
+   - 合并 drone_crawler/requirements.txt 的 5 项 + 前端依赖 + 模拟器依赖。
+   - pyserial 注释掉（上机才需要，桌面开发不需要）。
+
+10. P2-3 import math 移到顶部
+    - simulate.py 文件顶部 import math，
+      删除循环内 2 处局部 import math（随 P0-1 一并完成）。
+
+四、改动文件清单（2026-10-14 整合）
+
+  修改：
+    drone_sim/simulate.py
+      - P0-1 电量公式（BATTERY_WARN_V 终点 + 0.45 衰减）
+      - P0-3 --out 默认值相对路径
+      - P1-1 抽 _build_sim_loop / _build_report_lines 公共方法
+      - P1-4 新增 _pos_history 位置轨迹记录
+      - P2-3 import math 移到顶部
+    drone_ai/trigger.py
+      - P0-2 新增 gimbal_fault / payload_fault_flag 两条 TRIGGER_RULES
+    drone_ai/thresholds.py
+      - P0-2 新增第 12 节 GIMBAL_PITCH_MAX_DEG=80 / PAYLOAD_FAULT_FLAG_DEFAULT=0
+    drone_ai/serial_io.py
+      - P0-2 CHANNELS[uart4].metrics 加 payload_fault_flag，
+        DEFAULTS / UNITS 同步补全
+    drone_ai/ai_main.py
+      - P0-2 DEFAULT_METRICS 加 payload_fault_flag=0
+    drone_ai/decision.py
+      - P1-3 _load_matrix 加 warnings（文件不存在 / openpyxl 缺失 / 加载异常）
+      - P1-3 openpyxl import 移入 try 块
+      - 附带修复：_w_compute_P(anomaly) → _w_compute_P(anomaly, 0, 0)
+    drone_ai/analyzer/classifier.py
+      - P1-2 13 个 anomaly_type 关键词去重（删 35 个重复词）
+    drone_frontend/server.py
+      - P0-3 开发模式注释 D:\12\123 → 相对说明
+      - P1-4 _run_sim 捕获 sim._pos_history，_parse_report 改用真实轨迹
+    drone_sim/run_sim.py
+      - P0-3 注释 D:\123 → 项目根目录
+    drone_crawler/serial_bridge.py
+      - P2-1 文件头加 [DEPRECATED] 说明
+    drone_frontend/backend/DEPRECATED_NOTICE.txt（新增）
+      - P2-1 提示该目录是旧快照
+    123/requirements.txt（新增）
+      - P2-2 统一依赖清单
+
+五、验证结果
+  1. ai_main 自检（python drone_ai/ai_main.py）：
+     [OK] DroneAI 自检通过，8 场景演示全部正确。
+  2. simulate.py 不同 seed（--stdout 模式）：
+     seed=1 → [this] events[gps×2/lightning×3/wind×1] modes[CRUISE=30s/RTB=30s] changes=7
+     seed=2 → [this] events[bird×1/coldhot×1/escfault×1/motorfailure×1/rain×1] modes[CRUISE=30s/FORCE_LAND=0s] changes=2
+     [DIFF] 不同种子产生不同指纹，模拟正常。
+  3. openpyxl 缺失场景：
+     当前环境未装 openpyxl（pip 不可用），
+     decision.py 的 warnings 机制验证通过（不再 ModuleNotFoundError 中断），
+     P/T 矩阵退化为先验 P_prior，ai_main 自检仍 [OK]。
+  4. gimbal_fault / payload_fault 触发：
+     seed=42 运行中出现 gimbal_fault 事件，
+     trigger.py 新规则正确检测到（时间轴可见 gimbal_fault 异常行）。
+
+六、已知残留 / 后续
+  - openpyxl 未安装（本机 pip 不可用），
+    模拟器 --stdout 模式不受影响；
+    写 xlsx 模式（--out）需先安装 openpyxl。
+  - thresholds.py 仍有 24 项占位符未替换为真实飞行参数（见第十八节）。
+  - B 站 534 条乱码源无法无损还原（见第十九节）。
+  - FMECA 先验数值交叉核对仍待可访问 Wikipedia/DJI 后补查。
+  - backend/ 副本仍是旧版（无闭环/route/task_aborted），
+    建议下次 PyInstaller 打包前从 123/drone_ai + 123/drone_sim 同步最新代码。
+
+============================================
+二十二、双击启动路径验证 + PyInstaller 打包坑记录（2026-10-14）
+============================================
+说明：本节记录双击 .bat 启动路径的验证结果，以及 PyInstaller
+onefile exe 在本项目上踩到的 0 字节 datas bug（暂搁置，留档）。
+
+【一】双击启动模拟系统.bat —— 全路径验证通过（✅ 推荐方案）
+  入口：12/启动模拟系统.bat（纯 ASCII 版）
+        -> start pythonw drone_sim_launcher.pyw
+        -> 12/drone_sim_launcher.pyw（tkinter 菜单，8 个按钮）
+  依赖（已装到 D:\progambling\phyhon\app，PATH 首位 python）：
+        flask / openpyxl / pywebview（pythonnet 走 winforms）
+  逐项验证结果：
+    [1] simulate.py --stdout --minutes 1 --seed 42
+        -> RC=0，[DIFF] 指纹与上次不同（输出真的在变）
+    [2] ai_main.py 自检 -> [OK] DroneAI 自检通过，RC=0
+    [3] server.py 5000（dev 模式）-> 主页 200；
+        /api/sim?minutes=1&seed=42 -> events=10, pos_seq=61,
+        position_seq 含 yaw（P1-4 真实轨迹生效）
+    [4] drone_sim_launcher.pyw -> pythonw 进程常驻，模块加载正常
+    [5] demo.html 离线 3D：demo.html(71KB)+three.min.js(603KB)
+        +GLTFLoader.js(96KB)+models/drone_nologo.glb(200KB) 齐全
+        双击 demo.html 即可开，零 Python 依赖
+  结论：双击 bat 这条路已通，是"拷到另一台电脑"最稳方案。
+        （目标机需装 Python 3.9+ 并 pip install -r 123/requirements.txt，
+        3D 离线 demo 则完全零依赖。）
+
+【二】PyInstaller 打包 exe（已尝试，暂搁置）
+  目标：dist/DroneSim.exe 双击直开，免装 Python。
+  已做：重写 drone_frontend.spec（核心代码取 12/123 而非旧 backend；
+        console=False；pathex 加 drone_ai/analyzer；hiddenimports
+        补 weight_base；server.py frozen 模式直接 send_file 自 _MEIPASS，
+        sim_last_fp.txt 经 DRONE_SIM_STATE_DIR 环境变量写到 exe 同级）。
+  命中 bug（本环境）：PyInstaller 6.22.3 + 项目路径含空格
+        （ai test）下，Analysis datas 打包出来的资源全为 0 字节：
+        _MEIPASS 里 static/index.html、drone_sim/simulate.py、
+        models/*.glb 等 49 个文件解包后 size=0，导致：
+          - send_file(index.html) -> PermissionError/空页
+          - api/sim 能跑到 simulate 但写 sim_last_fp.txt 失败
+        已试过规避：把 datas 源先 copy2 到无空格 staging 目录
+        （_dist_staging，49 文件全非 0 字节）再打包，解包后仍 0 字节。
+        判定为 PyInstaller 版本/Windows 路径相关 bug，非项目代码问题。
+  状态：exe 方案暂缓。双击 bat / 离线 demo.html 已能满足需求，
+        exe 打包留待有空单独排查（可试 PyInstaller 其他版本或
+        onedir 模式验证）。
+
+【三】本轮代码改动（除验证外）
+  1. 123/drone_sim/simulate.py
+     - run_stdout()：sim_last_fp.txt 改写到 DRONE_SIM_STATE_DIR
+       环境变量指定目录（缺省仍为模块同级），frozen 模式可写。
+  2. 123/drone_ai/decision.py
+     - 兜底 _w_compute_P(anom, crash=0, success=0, **kw)：
+       签名与 weight_base.compute_P 对齐（修复 frozen 下
+       走兜底分支时 _w_compute_P() takes 1 positional but 3 given）。
+     - ImportError 分支打印 [decision] WARNING 到 stderr，
+       便于诊断为何走了兜底。
+  3. drone_frontend/server.py（frozen 分支重写）
+     - 去掉 copytree 到 exe 同级（残留只读文件会 PermissionError）；
+       改为直接 send_file 自 _MEIPASS（onefile 运行期对当前进程可读）。
+     - os.environ[DRONE_SIM_STATE_DIR] = exe 同级 drone_sim_writable。
+     - _get_port 后补 frozen 行为：_auto_open_browser + _keep_alive。
+  4. drone_frontend/drone_frontend.spec（重写，见上）
+     - _dist_staging 预拷 + 0 字节自检（raise RuntimeError）。
+  5. backend/ 与 123/ 已同步（route.py 等 37+7 文件），__pycache__ 清。
+
+【四】验证命令备忘
+  模拟:  python 123/drone_sim/simulate.py --stdout --minutes 1 --seed 42
+  AI:    python 123/drone_ai/ai_main.py
+  3D网:  python drone_frontend/server.py 5000  然后浏览器开 127.0.0.1:5000
+  3D离:  双击 drone_frontend/demo.html
+  启动:  双击 12/启动模拟系统.bat
+
+============================================
+二十三、项目整理 + bug 检查 + 文件清理（2026-10-14）
+============================================
+说明：全量盘点项目文件，修掉发现的 bug，清理无用文件，
+保证所有相关文件都在文件夹内、无死重。以下为已做的事，不含待办。
+
+【一】bug 检查（逐项验证）
+  1. launcher drone_sim_launcher.pyw ⑤“3D Web 后端 + 浏览器”：
+     原调用 start_server.py，该脚本末尾 proc.wait() 会挂起子进程，
+     导致 webbrowser.open 永不被调用（浏览器打不开）。
+     改法：直接 subprocess.Popen([python, server.py, 5000])（非阻塞），
+     3 秒后 webbrowser.open。已验证 headless 加载正常。
+  2. server.py 日志文案 “backend=...” 已改 “core=...”（backend 已删，见下）。
+  3. 验证 DRONE_SIM_STATE_DIR 生效：设置该环境变量后 run_stdout()
+     能在可写目录生成 sim_last_fp.txt（frozen 可写状态文件机制可用）。
+  4. 删除 backend/ 后重验 3D Web：/health=200, /=200(2677B),
+     /api/sim?minutes=1&seed=42=200(events=10,pos=61)。全通。
+  5. simulate.py / ai_main.py / decision.py / 离线 demo 全 RC=0。
+
+【二】删除的死重 / 无用文件
+  1. drone_frontend/backend/（整个目录）——旧 123/ 快照（约 80 文件），
+     server.py dev/frozen 均已不再引用，纯死重。已整体删除。
+  2. 所有 __pycache__/（12/ 及 123/、drone_frontend/ 下共多处）——字节码缓存，重生成即可。
+  3. drone_frontend/logs/{drone_sim,frontend,offline_demo}.log——旧运行日志（下次运行重生成）。
+  4. drone_frontend/dist, _dist_staging, build——PyInstaller 构建残留（方案已弃用）。
+  5. 123/_dedup_classifier.py, 123/_patch_p13.py——早先临时补丁脚本（上一轮已清）。
+  6. drone_frontend/{_check_demo,_diag_3d,_diag_gui,_sync_backend}.py——临时诊断脚本（上一轮已清）。
+
+【三】保留但标注 / 更新的文件
+  1. drone_frontend/drone_frontend.spec——保留为排查参考，头部加
+     [EXPERIMENT ABANDONED] 注释（PyInstaller 0 字节 datas bug，见二十二节）。
+  2. drone_frontend/backend/DEPRECATED_NOTICE.txt——随 backend/ 一起删除（无引用）。
+  3. drone_frontend/README.md——更新：去 D:\12 旧路径，标明 backend/ 弃用、
+     统一入口、本地 GLB、启动方式四条。
+  4. 123/drone_crawler/serial_bridge.py——保留（已带 [DEPRECATED] 标记，历史参考）。
+  5. drone_frontend/OFFLINE_DEMO_LOG.txt——保留（离线 demo 交付文档，含相机视角/自动降落设计）。
+  6. 123/sim_output.xlsx、drone_sim/sim_last_fp.txt——运行产物（示例输出/状态指纹），保留。
+
+【四】最终目录结构（所有相关文件都在 12/ 内，无外部依赖）
+  12/
+  ├─ 启动模拟系统.bat + drone_sim_launcher.pyw   # 统一入口（双击）
+  ├─ 123/
+  │   ├─ drone_ai/        # 机载 AI（含 analyzer/ 理论权重、archive_ai/ 旧影子引擎）
+  │   ├─ drone_sim/       # 飞行模拟器（simulate.py / run_sim.py / .bat）
+  │   ├─ drone_crawler/   # 爬虫 + 数据（data/raw/）
+  │   ├─ requirements.txt # 统一依赖清单
+  │   ├─ sim_output.xlsx  # 模拟 xlsx 输出
+  │   └─ 项目日志.txt      # 本日志
+  └─ drone_frontend/
+      ├─ server.py + start.bat + start_server.py + test_api.py  # 3D Web
+      ├─ demo.html + three.min.js + GLTFLoader.js + run_demo.bat + launch_app.pyw  # 离线 3D
+      ├─ static/{index.html,app.js,style.css} + models/drone_nologo.glb
+      ├─ drone_frontend.spec  # [弃用] PyInstaller 排查参考
+      ├─ OFFLINE_DEMO_LOG.txt # 离线 demo 交付文档
+      └─ README.md
+
+【五】验证命令备忘（同二十二节，补充）
+  全量验证: 双击 12/启动模拟系统.bat，逐个点 ①②③④⑤ 按钮
+  离线 3D:  双击 drone_frontend/run_demo.bat（或 demo.html）
+  3D Web:   双击 drone_frontend/start.bat
+  API 自测:  python drone_frontend/test_api.py（需先 python server.py 5000）

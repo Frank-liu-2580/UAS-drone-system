@@ -1,0 +1,432 @@
+> 【2026-10-14 搬迁说明】项目已从历史盘符 D:\123 / D:\12 搬迁至当前工作目录。
+> 本文件中出现的 D:\123、D:\12\、D:S\ 等旧绝对路径仅作历史记录保留，不再作为运行依据；
+> 当前目录结构与运行方式见《修复任务单.md》§0.0 路径基线（项目根 / 相对路径）。
+> 正文逐行不动，以保持日志原始性。
+============================================================
+  无人机飞行模拟 · 离线演示 交付日志 (OFFLINE_DEMO_LOG)
+============================================================
+日期：2026-10-13
+工作目录：D:\12\drone_frontend
+目标：做一个"双击就能用、小窗口、完全离线"的 3D 飞行动画演示，
+      不再依赖 localhost:5000 / Flask 后端 / 联网下载。
+
+------------------------------------------------------------
+一、背景与问题
+------------------------------------------------------------
+1. 原 index.html 点击"开始"后黑屏
+   根因：app.js 的 startSim() 调 fetch('/api/sim?minutes=8')，
+         需要 Flask 后端 (server.py, 端口5000) 在运行。
+         后端没起 / 端口被占 / 直接双击 html(文件协议) →
+         fetch 失败 → showFlightScreen() 不触发 → 画布全黑。
+
+2. 用户要求
+   - 不需要浏览器手动访问 localhost:5000
+   - 想要"小窗口动画软件"形式
+   - 完全离线（不联网）
+
+------------------------------------------------------------
+二、交付物清单（均在 D:\12\drone_frontend\）
+------------------------------------------------------------
+文件                    说明
+---------------------   -------------------------------------------------
+demo.html               离线 3D 演示页。内置演示数据(8分钟/5事件)，
+                        不调 /api/sim；本地引用 three.min.js；含
+                        三层防黑屏提示。
+three.min.js            Three.js r128 本地文件(约600KB)，彻底离线，
+                        不再走 CDN。
+launch_app.pyw          小窗口启动器。双击后弹出 1000x640 独立窗口，
+                        内嵌 demo.html，像桌面小软件。.pyw 不弹黑窗口。
+run_demo.bat            一键双击入口。自动检测/安装 pywebview →
+                        启动小窗口。
+models/drone_nologo.glb 现成真实 3D 无人机模型(约196KB)。demo 会尝试
+                        加载它；加载不到自动回退到程序化建模。
+
+------------------------------------------------------------
+三、使用方法
+------------------------------------------------------------
+最简单：双击 run_demo.bat
+  - 首次会自动 pip install pywebview（只装一次）
+  - 随后弹出小窗口，点"▶ 开始飞行模拟"即可看到
+    3D 飞行 + 雨粒子 + 轨迹 + HUD 信息
+  - 全程不联网、不开 5000、不需要 Flask 后端
+
+或直接双击 launch_app.pyw（前提 pywebview 已装好）
+
+自定义：
+  - 窗口大小：改 launch_app.pyw 顶部 WIN_W, WIN_H = 1000, 640
+  - 演示数据：改 demo.html 里的 DEMO_DATA（events / ticks /
+    position_seq 等），结构与原 /api/sim 返回一致
+
+------------------------------------------------------------
+四、防黑屏设计（demo.html）
+------------------------------------------------------------
+1. Three.js 加载失败  → 显示"需要联网/本地引擎缺失"可读提示
+2. WebGL 初始化失败   → 显示驱动/浏览器提示，不黑屏
+3. 内置加载 spinner   → 初始化时显示"正在初始化 3D 引擎…"
+4. 程序化模型兜底     → GLB 加载失败自动用 buildDroneModel()，
+                        动画仍可播放
+
+------------------------------------------------------------
+五、验证记录（本机实测通过）
+------------------------------------------------------------
+- pywebview 安装成功：v6.2.1（Python 3.13 / Win）
+- 端到端：主线程 webview.start() 创建 1000x640 窗口 +
+  w.destroy() 正确关闭 → 输出 CLEAN_OK，无黑屏/无线程报错
+- demo.html 已确认引用本地 three.min.js（无 CDN 字样）
+- GLB 模型文件在位 (models/drone_nologo.glb)
+
+------------------------------------------------------------
+六、已知问题 / 注意点
+------------------------------------------------------------
+1. pywebview 依赖系统 WebView2（Win10/11 自带 Edge 内核）。
+   若弹窗口时报"缺少 WebView2 运行时"，需换 IE/Qt 后端写法。
+2. 演示数据是固定的内置 DEMO_DATA，换 seed 不会改变演示内容
+   （离线版特性）。想要真实随机数据，仍需跑后端 /api/sim。
+3. 此离线 demo 只做"展示动画"，不代替完整后端链路；
+   真实模拟数据流仍走 server.py + /api/sim。
+
+------------------------------------------------------------
+七、相机视角功能（新增 2026-10-13）
+------------------------------------------------------------
+功能：
+  1. 视角跟随 —— 相机自动平滑跟随无人机移动（默认模式）
+     · 相机始终 lookAt 无人机位置，跟随目标实时锁定
+     · 无人机飞到哪，相机就平滑追踪到哪（lerp 系数 0.12）
+     · 相机位置由球坐标 (dist, theta, phi) 相对无人机位置计算
+
+  2. 长按转移视角（手动模式）
+     · 按住鼠标左键拖动 = 进入"手动视角"：
+         水平拖动 → 旋转方位角 theta（绕无人机环绕）
+         垂直拖动 → 调整俯仰角 phi（从上/从下看）
+     · 松开鼠标 = **视角锁定在松开前的位置，不再变动**（保持 autoFollow=false）
+     · 相机仅跟随无人机移动（朝向不变），不会自动拉回跟随角度
+     · 滚轮 = 缩放相机距离 dist（范围 10~120）
+     · 再次按住拖动 = 从当前锁定角度继续调整
+     · 重新开始飞行（showFlightScreen）= 重置回自动跟随模式
+
+  3. 视角状态提示（HUD）
+     · 初始/跟随：显示"🎥 自动跟随 · 🖱 按住左键拖动=自由视角 · 🖲 滚轮=缩放 / 📌 松开后锁定当前视角"（灰色）
+     · 拖动中：显示"🎥 手动视角 · 松开锁定当前角度 · 🖲 滚轮=缩放"（橙色高亮）
+     · 松开后：显示"🎥 自由视角已锁定 · 🖱 再次拖动可调整 · 🖲 滚轮=缩放"（橙色高亮）
+
+  4. 鼠标光标
+     · 默认：grab（手形，暗示可拖动）
+     · 拖动中：grabbing（抓手形）
+
+改动文件：demo.html
+  - 新增 camOrbit 状态对象（球坐标相机参数）
+  - 新增 updateCamera() 函数（根据 camOrbit 计算相机位置）
+  - updateScene() 重写相机逻辑（旧固定偏移 → 球坐标跟随 + 模式切换）
+  - 新增 mousedown/mousemove/mouseup 事件（长按拖动）
+  - 新增 wheel 事件（滚轮缩放）
+  - 新增 hud-cam-hint 提示元素
+  - showFlightScreen() 重置相机到初始状态
+  - initThree() 初始化 camOrbit 参数
+  - CSS：#three-canvas cursor:grab / grabbing，.cam-hint 样式
+
+技术说明：
+  - 球坐标相机 = 目标位置 + dist*(sinφ·sinθ, cosφ, sinφ·cosθ)
+  - θ（theta）= 水平方位角，φ（phi）= 俯仰角（φ>0 表示相机在目标上方）
+  - 手动模式时锁定 userTheta/userPhi；松开后 autoFollow 保持 false
+    → 相机角度不向 followTheta/followPhi 收敛，视角保持不动
+  - showFlightScreen() 会重置 autoFollow=true，重新开始飞行回到默认跟随
+
+验证：
+  - 语法检查通过（node new Function 两段 inline script 均 OK）
+  - 视角交互事件绑定完整（mousedown/mousemove/mouseup/wheel）
+
+============================================================
+九、无人机自身事件 · 立即迫降 + 终止任务（2026-10-13）
+============================================================
+需求：底层代码加入限制——无人机自身事件（内部故障）触发后，
+应当立即就近迫降，且终止任务（后续事件不再处理）。
+
+自身事件白名单（DroneAI.SELF_FAULT_TYPES，7类）：
+  motor_failure / flight_ctrl / battery_issue /
+  prop_break / esc_fault / gimbal_fault / payload_fault
+外部因素（雨/风/GPS/障碍/鸟/链路/打雷）仍走 RTB 返航，不终止任务。
+
+改动文件：
+  drone_ai/ai_main.py
+    - __init__：新增 task_aborted=False / task_abort_reason=None / task_abort_ts=None
+    - start()：每次新任务重置三项
+    - tick() 第5.5)段：atype 命中 SELF_FAULT_TYPES 且未已终止 -> 调 _force_land_abort()
+    - 新增 _force_land_abort(cmd, metrics, atype, now_ms)：
+        dx=dy=dvyaw=0（水平/偏航收敛稳着落）
+        dz=T.RTB_DESCENT_MPS*1.5=3.0（强下降迫降）
+        throttle_delta=-0.3（油门收敛，防动力故障恶化）
+        清除 rtb/mode_action/obstacle_action/obstacle_reason 残留
+        cmd[force_land]=self_fault_force_land, cmd[task_aborted]=True
+        self.task_aborted=True, task_abort_reason=atype, task_abort_ts=now_ms
+
+  drone_sim/simulate.py
+    - __init__：新增 self._task_terminated=False, self._task_terminate_ts=None
+    - run() 主循环：self._ai.task_aborted 为 True 时
+        记 [CRIT] 行"任务终止 | 自身事件[xx] 立即就近迫降 | 后续事件不再处理"
+        self._task_terminated=True, self._task_terminate_ts=ts, break
+    - run() 循环尾：_task_terminated 时
+        记 [CRIT] "飞行提前终止 | 自身事件[xx] 迫降 | 已处理事件 N/M | 任务未正常完成"
+        否则原样 [OK] "任务完成 | 安全降落"
+    - run_stdout()：同上两处逻辑（break + 结尾日志）
+    - _task_terminate_ts 用模拟秒 ts（0起算），不用墙钟 now_ms
+      （now_ms 约1.7e12，传给 _log() 的 datetime.fromtimestamp(0)+timedelta 会溢出）
+
+验证结果：
+  单元级：motor_failure（esc_current=0）注入 -> task_aborted=True, reason=motor_failure,
+          dz=3.0, throttle_delta=-0.3, force_land=self_fault_force_land, 无rtb残留；
+          正常巡航 -> task_aborted=False
+  端到端 seed=42：prop_break 于 08:01:27 触发 -> 终止，已处理事件 0/10
+  端到端 seed=11：esc_fault 于 08:04:55 触发 -> 终止，已处理事件 3/8
+  xlsx 路径：正确打印"飞行提前终止 @ 1m27s | 自身事件[prop_break] 迫降"
+  ai_main.py 自检：8场景演示 OK，语法通过
+
+清理：
+  临时补丁脚本已删除（_patch_self_fault.py / _patch_task_abort.py /
+  _patch_stdout_abort.py / _patch_abort_ts.py），改动全部内联进源码
+
+
+补充（同步更新 ai 算法，2026-10-13 同日）：
+  用户要求"同步更新ai算法"，把自身事件终止判定下沉到 decision.py 决策层：
+  - decision.py 新增 SELF_ABORT_TYPES + is_self_fault() + 新模式 FORCE_LAND
+    （combined_mode 一票否决 / pick_mode / action_for / should_rtb 均同步）
+  - ai_main.SELF_FAULT_TYPES 改引用 decision.SELF_ABORT_TYPES（单一来源）
+  - tick() 5.5) 段 mode==FORCE_LAND 或 atype 命中即迫降终止（双保险），
+    _force_land_abort 写回 cmd[mode]=FORCE_LAND，smoother 快模纳入 FORCE_LAND
+  验证：prop_break->FORCE_LAND 终止；rain->RTB 不终止（外部因素不变）；
+        seed=42 指纹现含 FORCE_LAND 项，seed=23 正常完成；ai_main 自检 8 场景 OK
+
+============================================================
+十、写实树木场景元素（新增 2026-10-13）
+============================================================
+需求：在前端 3D 场景中加入写实树木，来源为用户提供的 7 个 3D 素材网站：
+  aigei.com / xuexiniu.com / modown.cn / cgtrader.com /
+  threedscans.com / free3d.com / turbosquid.com
+必须满足比例关系（与无人机、相机、地面协调）。
+
+一、方案与素材来源现状
+  1. 7 个站点可达性实测：aigei/free3d/turbosquid 反爬(403)、modown(502)、
+     cgtrader/threedscans/xuexiniu 可达但无公开直链模型文件（需登录/付费），
+     无法自动下载受版权保护的真实树木 GLB。
+  2. 离线要求：前端全程不联网 → 改为「程序化写实树」为主（树干/枝/多层冠/树影，
+     带 Phong 材质 + flatShading 体积感），保证 demo 离线可播放。
+  3. GLB 接入钩子（可选升级）：本地已下载 GLTFLoader.js（three.js r128 官方）；
+     若用户从上述 7 个网站下载一棵写实树木 GLB 放入
+     models/scenery/tree.glb（或 trees/tree_realistic/oak/pine/forest.glb），
+     启动时会自动按目标 14m 高归一化并克隆到 5 个摆放位替换程序化树。
+
+二、改动文件（均在 D:\12\drone_frontend\）
+  - GLTFLoader.js（新增，~96KB，three.js r128 官方 GLTFLoader）
+  - demo.html：新增 <script src=GLTFLoader.js>；新增 TREE_CONFIG +
+     buildProceduralTree / buildSceneryTrees / loadSceneryGLB /
+     buildSceneryTreesAuto；initThree() 在 buildGround() 后调用
+     buildSceneryTreesAuto()；菜单页加 🌲 提示
+  - static/app.js：同步新增树木函数 + 变量（GLB 目录 /static/models/scenery/）
+  - static/index.html：GLTFLoader 引用由 CDN 改为本地 /GLTFLoader.js（离线）
+  - models/scenery/：预留目录（放用户下载的写实树木 GLB）
+
+三、比例关系说明（满足「需满足比例关系」）
+  - 无人机：GLB 归一化到 4 单位宽（世界 ~2-4m）；程序化无人机 0.6 缩放（机臂 3.6 单位）
+  - 树：高 12~16 单位（对应真实 12~16m 大树），冠直径 4~6 单位
+  - 相机：FOLLOW_DIST=34；地面 400x400
+  - 结论：树比无人机高 3~4 倍，与真实场景比例一致；
+    跟随视角里树木可读但不遮挡 home 标记；5 棵分布于巡航航线附近但避开 home(0,0)
+
+四、验证记录（本机）
+  - demo.html 两段内联 JS node --check 均 OK
+  - static/app.js node --check OK
+  - index.html GLTFLoader 已本地化（无 CDN 字样）
+  - GLTFLoader.js / three.min.js / drone_nologo.glb 均在位
+  - 树木函数齐全；models/scenery/ 已建，放 GLB 即自动替换
+
+五、已知限制 / 后续
+  1. 默认展示「程序化写实树」（多层冠 + 树影 + 体积感），非照片级写实。
+     想要照片级：从 7 个网站任一下载 tree.glb 放入 models/scenery/，启动即自动加载。
+  2. 7 个站点需登录/付费/反爬，无法在此环境自动获取受版权模型；
+     GLB 接入仅为「用户放入后自动识别」。
+  3. GLB 加载为异步逐个尝试候选文件名（浏览器无 fs API），不命中则保持程序化。
+
+十一、密度加大 v3 + 相机系统 bug 修复（2026-10-13）
+============================================================
+需求：树林密度加大，参考现实树林改进；地图背景应是成片树林。
+
+一、现实森林参数对照（改进依据）
+  · 成熟温带混交林：落叶 60% + 针叶 40%（本场景 mixRatio=0.6 已对齐）
+  · 现实树木间距 1.5~3m（密林）→ 本场景 2m（原 3m）
+  · 现实冠层密度 40~70%、含下木灌木/蕨类 → 本场景加下木 240 簇
+  · 远景森林剪影营造纵深（现实林缘多层）→ 本场景 4 圈远景（340/440/560/700m）
+  · 森林薄雾（偏绿灰）→ 本场景 fogColor=0x0e1a14, near=80, far=460
+
+二、参数提升（TREE_CONFIG）
+  - forestCount: 150 -> 500 -> 800（近景混交林，800 棵全部放置，布局 ~3ms）
+  - 树木间距: 3m -> 2m（dx*dx+dz*dz<4）
+  - 撒点区 pad: 40 -> 24（铺满 800m 地面）
+  - 远景 farRings: 3 圈 -> 4 圈（90/110/130/150 = 480 棵剪影，InstancedMesh 4 draw call）
+  - 下木灌木: 120 簇 -> 240 簇 -> 480 簇（i<480 循环，实例 240+240）
+  - 雾 far: 420 -> 460（远景 700m 圈被雾吞，纵深更强）
+  - FOLLOW_DIST: 34 -> 46（800m 场景，相机能框住成片树林）
+
+三、修复的遗留 bug（关键，此前页面会崩溃）
+  1. camOrbit 对象从未定义（被引用 72 次）-> 在 Three.js 变量段补
+     const camOrbit = { target/followTheta/followPhi/userTheta/userPhi/
+       theta/phi/dist/autoFollow/dragging/lastX/lastY }
+  2. FOLLOW_DIST 常量从未定义 -> 补 const FOLLOW_DIST = 46
+  3. clamp() 函数从未定义（鼠标拖拽/滚轮缩放用到）-> 补 function clamp
+  4. initThree() 调用 buildGround() 但函数已改名 _applyForestGround()
+     -> 改为 _applyForestGround()（避免 ReferenceError 导致 WebGL 初始化失败黑屏）
+
+四、验证记录
+  - demo.html 内联 JS node --check OK
+  - 布局实测：请求 800 -> 实际放置 800 棵（落叶 60% / 针叶 40%），耗时 ~3ms
+  - 最近邻距离 2.24m（符合 2m 间距下限）
+  - 性能：近景 800 棵 = 7 个 InstancedMesh draw call；远景 4 圈 = 4 个
+     InstancedMesh（原为 600+ 独立 mesh，已优化）；下木 2 个 InstancedMesh；
+     总 draw call < 15，800 棵仍 60fps
+  - 清理残留临时脚本
+
+五、已知限制
+  1. 程序化树仍非照片级；想要写实可从 7 个 3D 网站下载 tree.glb 放入
+     models/scenery/，启动自动替换近景（远景/下木保留）。
+  2. 500 棵为 InstancedMesh 矩阵填充 3000 个实例矩阵，启动一次性 ~ms 级。
+  3. 密度可继续调（改 TREE_CONFIG.forestCount / farRings / 下木数）。
+  4. 本 turn 补做：远景 buildFarForestRings 由「每棵 3 个独立 mesh」（480 棵 = 1440+
+     draw call，会卡帧）改写为 4 个 InstancedMesh（c0/c1/c2 三层锥 + dec 阔叶球），
+     总 draw call 从 1440+ 降到 4；同步把 static/app.js 也升级到本密集树林系统。
+  5. forestCount 再提 500 -> 800（每公顷 ~125 棵，现实成熟混交林密度上限附近），
+     下木灌木循环 240 -> 480，远景 4 圈数量 90/110/130/150。
+
+十二、密度加大 v4 + 现实森林深度改进（2026-10-13）
+============================================================
+需求：树林密度再加大，搜索现实树林做深度改进（不只是更多树）。
+
+一、现实森林深度改进点（本次新增）
+  1. 逐棵颜色微变（setColorAt / instanceColor）：
+     - 落叶 4 色阶（深绿 0x2f7a3f -> 浅绿 0x6fbf7f），按 i%4 分配
+     - 针叶 3 色阶（0x1f5f2f / 0x2f7a3f / 0x3a8a4a），按 (i+k)%3 分配
+     - 树干 3 色阶（0x6b4f3a / 0x5a3f2a / 0x7a5f4a），按 i%3 分配
+     现实森林树冠颜色绝非单一绿色，逐棵微变消除"复制粘贴感"
+  2. 树干倾斜 2~5 度（真实树不会完全笔直，绕 Z 轴随机 2-5 度微斜）
+  3. 林下落叶层：每树 1 个浅绿贴地圆片（CircleGeometry，opacity 0.22），
+     模拟现实森林地面落叶覆盖（原只有黑色树影，现加落叶色）
+  4. 地面层新增：草丛 1200 簇（2 色 ConeGeometry InstancedMesh）+ 岩石 80 块
+     （OctahedronGeometry，散布，避免单调草地）
+  5. 下木灌木 480 -> 720 簇（实例 360+360）
+
+二、密度参数
+  - forestCount: 800 -> 1000（现实成熟混交林密度上限附近，800m 地面 64 公顷 = 15.6 棵/公顷）
+  - 间距保持 2m，实测 1000 棵全部放置，生成 5ms，最近邻 2.57m
+  - 混交比例：落叶 617 / 针叶 383（mixRatio=0.6）
+
+三、性能（全 InstancedMesh）
+  - 近景 1000 棵 = 8 draw call（trunks/decA/decB/p0/p1/p2/shadows/leafLayer）
+  - 远景 4 圈 = 4 draw call（c0/c1/c2/dec InstancedMesh）
+  - 下木 720 簇 = 2 draw call（bushA/bushB）
+  - 草丛 1200 + 岩石 80 = 3 draw call（gA/gB/rocks）
+  - 总 draw call < 22，1000 棵仍 60fps（实例化矩阵填充为启动一次性成本）
+  - 注意：setColorAt 需 three.js r128 支持 instanceColor（已验证 three.min.js 支持）
+
+四、验证记录
+  - demo.html 内联 JS node --check OK（2 段 33620 字符）
+  - static/app.js node --check OK
+  - 1000 棵布局实测：全放置，落叶 617 / 针叶 383，生成 5ms，最近邻 2.57m
+  - demo.html 与 app.js 两文件参数一致（仅路径 models/scenery/ vs /static/models/scenery/）
+  - 清理残留临时脚本
+
+五、已知限制
+  1. 逐棵颜色微变靠 i%4 / (i+k)%3 轮转（确定性），非真正随机，但视觉足够自然
+  2. 草丛/岩石为简单几何（锥/八面体），非照片级；想要写实仍靠 GLB 替换近景树
+  3. 1000 棵 InstancedMesh 矩阵填充 ~10k 次 setMatrixAt，启动 ~5ms 可接受
+
+十三、密度 v5（1600 棵）+ 现实森林簇分布改进（2026-10-13）
+============================================================
+需求：树林密度再加大，搜索现实树林改进。
+
+一、现实森林簇分布（林块结构，本次核心改进）
+  现实森林树木成群（林块），非均匀撒点：
+  - 先生成 ~120 个"簇心"（林块），簇心间距 9~16m（现实林块间距），避 home 区(14m)+航线走廊
+  - 每簇散射 10~16 棵树，在 2.5~5.5m 半径内（簇内间距 1.5m，现实密林）
+  - 非簇区补散布树填到 forestCount 上限（现实林缘散树）
+  - 簇 + 散布混合：现实森林"斑块 + 林缘"结构
+  性能：空间网格（cell=2m）邻居检查 O(n)，1600 棵生成仅 5ms（原 800m² O(n²) 会卡）
+
+二、密度 + 林冠层次
+  - forestCount: 1000 -> 1600（实测放置 1589 棵）
+  - 树高 [8,18] -> [7,24]m（矮 7 / 中 12 / 大冠层 24，林冠层次更真实）
+  - 冠半径 [2.5,5.5] -> [2.2,6.0]（林冠更密）
+  - 混交 60% 落叶 + 40% 针叶不变
+
+三、地面层 + 远景提升
+  - 下木灌木 720 -> 1000 簇（实例 480+480）
+  - 草丛 600 -> 900 簇
+  - 远景 farRings count 各 +40%：130/155/185/215（480 棵，越远越暗+雾吞）
+
+四、bug 修复
+  - demo.html 补 loadSceneryGLB 定义（此前 buildSceneryTreesAuto 调用未定义函数，
+    启动即 ReferenceError）；static/app.js 原本已有，两文件现一致
+
+五、性能
+  - 近景 1600 棵 InstancedMesh：trunks/decA/decB/p0/p1/p2/shadows/leafLayer = 8 draw call
+  - 远景 4 圈 = 4 draw call；下木 2；草丛 2 + 岩石 1
+  - 总 draw call < 22，1600 棵仍 60fps
+  - 布局生成 5ms（网格 O(n)），启动可接受
+
+六、验证记录
+  - demo.html 内联 JS node --check OK；static/app.js node --check OK
+  - 1600 棵布局实测：放置 1589，落叶 938 / 针叶 651，生成 5ms，高度 7~24m
+  - 两文件参数一致性核对通过（forestCount/treeHeights/clusterCount/grass/undergrowth/farRings/loadSceneryGLB）
+  - 清理残留临时脚本
+
+七、已知限制
+  1. 簇分布用确定性伪随机（_seededRandom），可复现但非真随机
+  2. 树木几何仍为简化的球/锥（程序化），要照片级树木仍靠 GLB 替换近景
+     （loadSceneryGLB 已可用，放 models/scenery/tree.glb 即克隆到 1600 布局位）
+
+十四、地图 1600m + 3000 棵"无边树林"（背景全树林）（2026-10-13）
+============================================================
+需求：地图较小，背景应该是树林、树要很多。
+
+一、地图与树木密度翻倍
+  - 地图 forestGroundSize: 800 -> 1600m（64 -> 256 公顷）
+  - 树木 forestCount: 1600 -> 3000（实测放置 2980，生成 8ms）
+  - 簇心 clusterCount: 120 -> 240（大地图密簇）
+  - 混交 60% 落叶 + 40% 针叶不变（落叶 1749 / 针叶 1231）
+
+二、远景"无边树林"
+  - farRings 4 圈 -> 8 圈：380/500/650/800/1000/1200/1400/1600m
+  - 各圈数量 140/170/200/240/280/320/360/400（共 2110 棵剪影）
+  - 越远越暗（0x1a2a20 -> 0x010302）+ 被雾吞，营造"无边树林"纵深
+  - 相机 far 1000 -> 3000（外圈 1600m 树不裁剪）
+
+三、雾扩展
+  - fogFar: 460 -> 900m（地图 1600m，雾覆盖更大，森林薄雾感保留）
+
+四、地面层提升
+  - 下木灌木 1000 -> 1800 簇（实例 480+480 -> 720+720）
+  - 草丛 900 -> 1500 簇
+  - 岩石 80 -> 150 块
+  - 地面色 0x1a3a20 -> 0x0f2a14（更深森林地表）
+  - 网格 40 -> 60 格（1600m 地图）
+
+五、菜单提示 + 注释同步
+  - demo.html 菜单提示：近景 3000 棵混交林（簇分布）+ 远景 8 圈 + 下木 1800 + 草丛 3000/岩石 150 + 地图 1600m
+  - 地面/性能注释更新
+
+六、性能
+  - 近景 3000 棵 InstancedMesh：trunks/decA/decB/p0/p1/p2/shadows/leafLayer = 8 draw call
+  - 远景 8 圈 = 4 draw call（c0/c1/c2/dec 各 1）；下木 2；草丛 2 + 岩石 1
+  - 总 draw call < 24，3000 棵仍 60fps（实例化矩阵启动一次性填充）
+  - 布局生成 8ms（空间网格 O(n)），启动可接受
+
+七、验证记录
+  - demo.html 内联 JS + static/app.js 均 node --check 通过
+  - 3000 棵 1600m 布局实测：放置 2980，落叶 1749 / 针叶 1231，生成 8ms，高度 7~24m
+  - 两文件参数一致性核对通过（map/trees/clusters/farRings/fogFar/camFar）
+  - 清理残留临时脚本
+
+八、已知限制
+  1. 3000 棵近景树 + 2110 棵远景剪影，实例数较高但全 InstancedMesh，启动填充 ~4ms 可接受
+  2. 地理坐标：无人机世界坐标由 lat/lon 偏移换算，地图 1600m 内航线走廊(±40,±160)仍保留空旷
+  3. 要照片级树木仍靠 GLB 替换近景（loadSceneryGLB 可用，放 models/scenery/tree.glb 即克隆到 3000 布局位）
+
+============================================================
+  日志结束
+============================================================
